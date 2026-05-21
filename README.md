@@ -41,6 +41,9 @@ browser.
 The calendar overlay is one-way: events from `.ics` files appear on the
 timeline as a translucent backdrop. The assistant never writes back.
 
+To utilize the calendar overlay, drop an exported .ics from your calendar
+into data/UserCalendar/
+
 ## Keyboard shortcuts
 
 - `\t` — capture a task (slash-command modal)
