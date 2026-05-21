@@ -1,5 +1,12 @@
 # ADHD assistant
 
+## IMPORTANT!  run.bat is UNTESTED, use at your own risk.
+This entire project was written with the heavy use of Claude Code
+It works well for me on MacOS and Debian Linux, it should work
+on Windows, but I haven't tested it.
+
+## It sucks on mobile because it's heavily dependant on keyboard controls.
+
 A local-first single-user webpage for taming the day. Day-timeline +
 tasks tab + quick-capture inbox, all stored as JSON files next to the
 server. Nothing leaves your machine — no accounts, no cloud, no sync.
