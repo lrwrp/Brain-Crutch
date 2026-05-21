@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn[standard]>=0.32
+# Calendar overlay: parse data/UserCalendar/*.ics files. recurring-ical-events
+# handles RRULE/EXDATE expansion within a date window (~5 KB of code on top
+# of icalendar + dateutil).
+icalendar>=5.0
+recurring-ical-events>=2.1
