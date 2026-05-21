@@ -58,10 +58,9 @@ into data/UserCalendar/
 - `\f` — start a focus timer
 - `c` — toggle done on the selected task
 - `w` / `s` — nudge selected task earlier / later
-- `a` / `d` — shrink / grow selected task duration
+- `a` / `d` — increase / decrease selected task priority (low/medium/high)
 - `r` / `e` — read / edit selected task's notes
-- `←` / `→` — previous / next day
-
+  
 ## Backup
 
 Everything is `data/`. Copy the folder, you've got a backup. Replace it
