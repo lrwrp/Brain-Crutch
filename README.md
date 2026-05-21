@@ -11,6 +11,13 @@ A local-first single-user webpage for taming the day. Day-timeline +
 tasks tab + quick-capture inbox, all stored as JSON files next to the
 server. Nothing leaves your machine — no accounts, no cloud, no sync.
 
+Currently "single user" as there's just one data directory.  I guess you 
+could spin up another server on a different port for a different user
+if you enjoy misery. 
+
+It runs on http on localhost by default, you can change it by editing server.py.
+You can even add a cert and run https if you like, but why?
+
 ## Quickstart
 
 You need [`uv`](https://docs.astral.sh/uv/) on your PATH. If you don't
