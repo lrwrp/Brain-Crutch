@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ADHD assistant</title>
+    <link rel="stylesheet" href="/web/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="now">
+          <div id="clock" class="clock">--:--</div>
+          <div id="date" class="date">—</div>
+        </div>
+        <button id="focus-btn" class="focus-btn" type="button" title="Start a focus timer (\f)">Focus</button>
+      </div>
+      <div class="topbar-right">
+        <div id="wins-stars" class="wins-stars" aria-label="High-priority completions today"></div>
+        <div class="wins" id="wins" title="completed today">✓ 0 today</div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="timeline-panel">
+        <header class="timeline-head">
+          <h2 id="day-heading">Today</h2>
+          <div class="timeline-actions">
+            <button id="date-prev" class="btn date-arrow" type="button" aria-label="Previous day" title="Previous day">‹</button>
+            <input id="date-picker" class="date-picker" type="date" />
+            <button id="date-next" class="btn date-arrow" type="button" aria-label="Next day" title="Next day">›</button>
+            <button id="today-btn" class="btn" type="button" title="Jump to today (t)">Today</button>
+            <button id="add-task" class="btn" type="button" title="Add task (a)">+ task</button>
+          </div>
+        </header>
+        <div id="all-day-strip" class="all-day-strip" aria-label="All-day events"></div>
+        <div id="timeline" class="timeline">
+          <div class="hours" id="hours"></div>
+          <div class="tracks" id="tracks">
+            <div class="now-line" id="now-line" aria-hidden="true">
+              <span class="now-pill" id="now-pill">--:--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side">
+        <section class="triage">
+          <header class="triage-head">
+            <h2>Triage</h2>
+            <nav class="tabs" role="tablist">
+              <button type="button" class="tab active" data-tab="inbox" role="tab">
+                Inbox <span class="badge" id="inbox-count">0</span>
+              </button>
+              <button type="button" class="tab" data-tab="tasks" role="tab">
+                Tasks <span class="badge" id="tasks-count">0</span>
+              </button>
+            </nav>
+          </header>
+
+          <div class="tab-panel" id="inbox-panel" role="tabpanel">
+            <ul id="inbox-list" class="triage-list" aria-live="polite"></ul>
+            <p id="inbox-empty" class="muted empty">Nothing here. Drop anything above and Enter.</p>
+          </div>
+
+          <div class="tab-panel hidden" id="tasks-panel" role="tabpanel">
+            <form id="task-form" class="task-create" autocomplete="off">
+              <input id="task-input" type="text" placeholder="New task…" />
+            </form>
+            <div class="task-sections">
+              <ul id="tasks-list" class="triage-list"></ul>
+            </div>
+            <p id="tasks-empty" class="muted empty">No tasks waiting. Add one above or send one here from the Inbox.</p>
+            <details id="tasks-snoozed-details" class="snoozed-details" hidden>
+              <summary id="tasks-snoozed-summary"></summary>
+              <ul id="tasks-snoozed-list" class="triage-list"></ul>
+            </details>
+          </div>
+
+          <div class="kbd-hint" title="Press \ then n or t to capture">
+            <span><kbd>\</kbd><kbd>n</kbd> inbox</span>
+            <span><kbd>\</kbd><kbd>t</kbd> task</span>
+            <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>c</kbd> done · <kbd>r</kbd>/<kbd>e</kbd> notes</span>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <div id="capture-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" data-modal-close></div>
+      <div class="modal-content">
+        <div class="modal-title" id="capture-modal-title">Capture to Inbox</div>
+        <textarea
+          id="capture-modal-input"
+          class="modal-input"
+          rows="3"
+          spellcheck="true"
+          placeholder="Type and press Enter…"
+        ></textarea>
+        <div class="modal-hint">
+          <kbd>Enter</kbd> save · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>Esc</kbd> cancel
+        </div>
+      </div>
+    </div>
+
+    <div id="notes-read-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" data-notes-read-close></div>
+      <div class="modal-content notes-read-content">
+        <div class="notes-read-head">
+          <div class="modal-title">
+            <span>Notes — </span><span id="notes-read-task-title"></span>
+          </div>
+          <div class="notes-read-actions">
+            <button type="button" id="notes-read-edit-btn" class="action-btn primary">Edit</button>
+            <button
+              type="button"
+              class="action-btn"
+              data-notes-read-close
+              aria-label="Close"
+            >×</button>
+          </div>
+        </div>
+        <div id="notes-read-body" class="notes-read-body" aria-label="Notes"></div>
+        <div class="modal-hint">
+          <kbd>e</kbd> edit · <kbd>Esc</kbd> close
+        </div>
+      </div>
+    </div>
+
+    <div id="notes-modal" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" data-notes-close></div>
+      <div class="modal-content notes-content">
+        <div class="modal-title">
+          <span>Notes — </span><span id="notes-modal-task-title"></span>
+        </div>
+        <textarea
+          id="notes-modal-input"
+          class="modal-input notes-source"
+          rows="14"
+          spellcheck="true"
+          placeholder="Markdown supported: ## heading, **bold**, - list, [link](https://…), ![image](/api/attachments/…)"
+        ></textarea>
+        <div class="modal-hint">
+          <kbd>Enter</kbd> save · <kbd>Shift</kbd>+<kbd>Enter</kbd> newline · <kbd>Esc</kbd> cancel
+        </div>
+      </div>
+    </div>
+
+    <div id="focus-launcher" class="modal hidden" role="dialog" aria-modal="true">
+      <div class="modal-backdrop" data-focus-launcher-close></div>
+      <div class="modal-content focus-launcher-content">
+        <div class="modal-title">Focus for…</div>
+        <div class="focus-spinner">
+          <button
+            type="button"
+            id="focus-minus"
+            class="focus-step"
+            aria-label="Less minutes"
+          >‹</button>
+          <input
+            id="focus-minutes"
+            class="focus-minutes"
+            type="number"
+            min="1"
+            max="45"
+            step="1"
+            value="5"
+            inputmode="numeric"
+            aria-label="Minutes"
+          />
+          <button
+            type="button"
+            id="focus-plus"
+            class="focus-step"
+            aria-label="More minutes"
+          >›</button>
+          <span class="focus-minutes-label">min</span>
+        </div>
+        <div class="modal-hint">
+          <kbd>Enter</kbd> start · <kbd>Esc</kbd> cancel ·
+          click <kbd>‹</kbd> <kbd>›</kbd> for ±1, hold for ±5
+        </div>
+      </div>
+    </div>
+
+    <div id="focus-overlay" class="focus-overlay hidden" aria-live="polite">
+      <div class="focus-overlay-content">
+        <div id="focus-state-preroll" class="focus-state focus-state-preroll">
+          <div id="focus-preroll-num" class="focus-preroll-num">3</div>
+        </div>
+        <div id="focus-state-running" class="focus-state focus-state-running hidden">
+          <div id="focus-clock" class="focus-clock">05:00</div>
+          <button id="focus-cancel-btn" class="btn focus-action" type="button">Cancel</button>
+        </div>
+        <div id="focus-state-done" class="focus-state focus-state-done hidden">
+          <div class="focus-done-headline">✓ Time's up</div>
+          <div id="focus-done-detail" class="focus-done-detail"></div>
+          <div class="focus-done-actions">
+            <button id="focus-restart-btn" class="btn primary focus-action" type="button">Restart</button>
+            <button id="focus-close-btn" class="btn focus-action" type="button">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/web/main.js"></script>
+  </body>
+</html>
