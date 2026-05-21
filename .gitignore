@@ -9,6 +9,7 @@ __pycache__/
 #Project specific stuff
 data/
 dist/
+screenshots/
 
 # C extensions
 *.so
