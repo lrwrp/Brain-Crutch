@@ -5,6 +5,8 @@ This entire project was written with the heavy use of Claude Code
 It works well for me on MacOS and Debian Linux, it should work
 on Windows, but I haven't tested it.
 
+Expect plenty of weird behavior, I haven't finished user testing yet.
+
 ## It sucks on mobile because it's heavily dependant on keyboard controls.
 
 A local-first single-user webpage for taming the day. Day-timeline +
@@ -64,6 +66,20 @@ timeline as a translucent backdrop. The assistant never writes back.
 - `w` / `s` — nudge selected task earlier / later
 - `a` / `d` — increase / decrease selected task priority (low/medium/high)
 - `r` / `e` — read / edit selected task's notes
+
+## General functionality
+This was meant for the adhd brain, you can schedule things today, or...not today.
+
+You get a counter for tasks completed, a star for completing high priority tasks.
+
+You can add notes, and tasks, and notes to tasks, make tasks from notes.
+
+For tasks you want repeat, like whatever, exercise, music practice, staring into the void,
+you can mark them as repeating.  You get credit for completing them but they will still be
+there tomorrow to do again. Sisyphus would be proud.
+
+For the things you know you're not going to get to, you can snooze them for a period of 
+time and they will go into a snoozed task section.  
   
 ## Backup
 
