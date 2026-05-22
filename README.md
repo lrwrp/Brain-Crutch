@@ -96,17 +96,15 @@ to restore.
 ## Manual setup (if `run.sh` isn't your thing)
 
 ```sh
-uv venv --python 3.11        # 3.11+ works; uv will fetch one if needed
-uv pip install -r requirements.txt
-.venv/bin/python server.py
+uv run python server.py     # auto-syncs deps from pyproject.toml + uv.lock
 ```
 
 ## Development
 
-Tests use pytest + pytest-playwright:
-
+Tests use pytest + pytest-playwright. `uv sync` brings in the dev
+group from `pyproject.toml`:
 ```sh
-uv pip install -r requirements-dev.txt
+uv sync             # runtime + dev deps
 uv run playwright install chromium
 make test           # unit + server tests
 make test-e2e       # browser tests (slower)
