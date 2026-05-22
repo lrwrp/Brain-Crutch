@@ -1,0 +1,25 @@
+[project]
+name = "adhd-assistant"
+version = "0.1.0"
+description = "Local-first single-user webpage for taming the day."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    # Calendar overlay: parse data/UserCalendar/*.ics files.
+    # recurring-ical-events handles RRULE/EXDATE expansion within a
+    # date window on top of icalendar + dateutil.
+    "icalendar>=5.0",
+    "recurring-ical-events>=2.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "pytest-playwright>=0.5",
+]
+
+[tool.uv]
+# Single-package project — no library to publish, just an app to run.
+package = false
