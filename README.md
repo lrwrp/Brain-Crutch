@@ -9,7 +9,7 @@ Expect plenty of weird behavior, I haven't finished user testing yet.
 
 ## It sucks on mobile because it's heavily dependant on keyboard controls.
 
-![A screenshot of ADHD Assistant](/screenshots/"ADHD_Assistant.png"?raw=true "ADHD Assistant")
+![A screenshot of ADHD Assistant](/screenshots/ADHD_Assistant.png?raw=true "ADHD Assistant")
 
 A local-first single-user webpage for taming the day. Day-timeline +
 tasks tab + quick-capture inbox, all stored as JSON files next to the
