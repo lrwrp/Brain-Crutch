@@ -9,6 +9,8 @@ Expect plenty of weird behavior, I haven't finished user testing yet.
 
 ## It sucks on mobile because it's heavily dependant on keyboard controls.
 
+![A screenshot of ADHD Assistant](/screenshots/"ADHD_Assistant.png"?raw=true "ADHD Assistant")
+
 A local-first single-user webpage for taming the day. Day-timeline +
 tasks tab + quick-capture inbox, all stored as JSON files next to the
 server. Nothing leaves your machine — no accounts, no cloud, no sync.
@@ -19,6 +21,7 @@ for a different user if you enjoy misery.
 
 It runs on http on localhost by default, you can change it by editing server.py.
 You can even add a cert and run https if you like, but why?
+
 
 ## Quickstart
 
