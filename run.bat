@@ -1,7 +1,7 @@
 @echo off
 REM Bootstrap + launch the ADHD assistant on Windows.
-REM First run creates .venv\, installs deps, then starts the server and
-REM opens the browser. Subsequent runs skip setup.
+REM `uv run` reads pyproject.toml + uv.lock, materializes .venv on
+REM first launch, then starts the server. No separate install step.
 
 setlocal
 cd /d "%~dp0"
@@ -14,13 +14,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist .venv (
-    echo Setting up virtualenv (one-time)...
-    uv venv --python 3.11 || exit /b 1
-)
-
-uv pip install --quiet -r requirements.txt || exit /b 1
-
 echo Starting on http://localhost:1440 - Ctrl-C to stop.
 start "" "http://localhost:1440"
-.venv\Scripts\python.exe server.py
+uv run --no-dev python server.py
