@@ -6,6 +6,10 @@ It works well for me on MacOS and Debian Linux, it should work
 on Windows, but I haven't tested it.
 
 Expect plenty of weird behavior, I haven't finished user testing yet.
+For example, I initially conceived of this as 0800-2000, because we all
+need some unstructured time. As a result, you absolutely cannot put a
+task  on the timeline after 2000, despite the timeline being a full
+24hr.
 
 ## It sucks on mobile because it's heavily dependant on keyboard controls.
 
