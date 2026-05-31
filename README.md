@@ -6,14 +6,21 @@ It works well for me on MacOS and Debian Linux, it should work
 on Windows, but I haven't tested it.
 
 Expect plenty of weird behavior, I haven't finished user testing yet.
-For example, I initially conceived of this as 0800-2000, because we all
-need some unstructured time. As a result, you absolutely cannot put a
-task  on the timeline after 2000, despite the timeline being a full
-24hr.
+I initially conceived of this as 0800-2000, because we all need some
+unstructured time. That window is now just a visual cue — the timeline
+is a full 24hr and you can drop a task at any hour; anything outside
+0800-2000 just renders dimmed so putting it there feels deliberate.
 
-## It sucks on mobile because it's heavily dependant on keyboard controls.
+## Mobile works now (it didn't used to)
+
+It's still keyboard-happy on desktop, but on a phone you get a
+Timeline/Triage tab switcher plus touch controls — an inline inbox
+capture bar, a + task bar, and a one-task-at-a-time Queue — so you can
+actually use it without a keyboard.
 
 ![A screenshot of ADHD Assistant](/screenshots/ADHD_Assistant.png?raw=true "ADHD Assistant")
+
+![ADHD Assistant on mobile](/screenshots/ADHD_Assistant_mobile.png?raw=true "ADHD Assistant on mobile")
 
 A local-first single-user webpage for taming the day. Day-timeline +
 tasks tab + quick-capture inbox, all stored as JSON files next to the
@@ -69,6 +76,7 @@ timeline as a translucent backdrop. The assistant never writes back.
 - `\t` — capture a task (slash-command modal)
 - `\n` — capture an inbox note
 - `\f` — start a focus timer
+- `\q` — work one task at a time (focus queue)
 - `c` — toggle done on the selected task
 - `w` / `s` — nudge selected task earlier / later
 - `a` / `d` — increase / decrease selected task priority (low/medium/high)

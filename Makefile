@@ -16,6 +16,7 @@ test-e2e:
 test-watch:
 	uv run ptw -- -m "not e2e"
 
-# Boot the dev server.
+# Boot the dev server. `uv run` auto-syncs if pyproject.toml/uv.lock
+# changed since last invocation.
 run:
-	.venv/bin/python server.py
+	uv run --no-dev python server.py

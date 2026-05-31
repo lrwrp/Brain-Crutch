@@ -200,14 +200,39 @@ class TestVersionedIO:
         )
 
         result = server.load_versioned(p)
-        assert result["version"] == 2
+        # The upgrade chain runs all the way to the current version; the
+        # v1→v2 effect we care about is that ``status`` is gone.
+        assert result["version"] == server.CURRENT_VERSION
         for item in result["items"]:
             assert "status" not in item
 
         on_disk = json.loads(p.read_text())
-        assert on_disk["version"] == 2
+        assert on_disk["version"] == server.CURRENT_VERSION
         for item in on_disk["items"]:
             assert "status" not in item
+
+    def test_load_versioned_v2_to_v3_bumps_version(self, tmp_path):
+        """Tier 2 #15: the v2→v3 upgrade is a pure version bump (recur fields
+        are backfilled lazily by _normalize_task, not written here), so a v2
+        file becomes current-versioned with items untouched."""
+        p = tmp_path / "legacy_v2.json"
+        p.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "items": [{"id": "a", "title": "alpha"}],
+                }
+            )
+        )
+
+        result = server.load_versioned(p)
+        assert result["version"] == server.CURRENT_VERSION
+        # Items are not rewritten by the bump; recur fields are absent on disk
+        # and filled on task read instead.
+        assert result["items"] == [{"id": "a", "title": "alpha"}]
+
+        on_disk = json.loads(p.read_text())
+        assert on_disk["version"] == server.CURRENT_VERSION
 
     def test_ensure_data_stamps_fresh_files_with_version(self, tmp_data_dir):
         # tmp_data_dir already pointed server's paths at an empty dir; trigger

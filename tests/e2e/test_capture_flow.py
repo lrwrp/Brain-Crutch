@@ -85,6 +85,29 @@ def test_escape_in_modal_cancels_without_saving(page, live_server):
 
 
 @pytest.mark.e2e
+def test_inline_inbox_bar_captures_to_inbox(page, live_server):
+    """The Inbox tab has an inline capture bar (mirrors the Tasks bar) so a
+    quick capture is reachable by touch, without the keyboard-only `\\n`."""
+    page.goto(live_server.url)
+
+    expect(page.locator("#inbox-count")).to_have_text("0")
+
+    # Switch to the Inbox tab and use its inline input directly.
+    page.locator('.tab[data-tab="inbox"]').click()
+    inbox_input = page.locator("#inbox-input")
+    expect(inbox_input).to_be_visible()
+    inbox_input.fill("buy stamps")
+    inbox_input.press("Enter")
+
+    expect(page.locator("#inbox-count")).to_have_text("1")
+    inbox_items = page.locator("#inbox-list .triage-item")
+    expect(inbox_items).to_have_count(1)
+    expect(inbox_items.locator(".text")).to_contain_text("buy stamps")
+    # Input clears after a successful capture, ready for the next one.
+    expect(inbox_input).to_have_value("")
+
+
+@pytest.mark.e2e
 def test_shift_enter_inserts_newline_in_modal(page, live_server):
     """Shift+Enter must insert a newline; only plain Enter saves and closes."""
     page.goto(live_server.url)

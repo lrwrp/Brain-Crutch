@@ -11,9 +11,11 @@
       <div class="topbar-left">
         <div class="now">
           <div id="clock" class="clock">--:--</div>
-          <div id="date" class="date">—</div>
+          <div id="date" class="date">
+            <span id="date-weekday" class="date-weekday">—</span>
+            <span id="date-monthday" class="date-monthday">—</span>
+          </div>
         </div>
-        <button id="focus-btn" class="focus-btn" type="button" title="Start a focus timer (\f)">Focus</button>
       </div>
       <div class="topbar-right">
         <div id="wins-stars" class="wins-stars" aria-label="High-priority completions today"></div>
@@ -21,11 +23,18 @@
       </div>
     </header>
 
+    <nav class="app-views" role="tablist" aria-label="Switch view">
+      <button type="button" class="app-view active" data-view="timeline" role="tab">Timeline</button>
+      <button type="button" class="app-view" data-view="triage" role="tab">Triage</button>
+    </nav>
+
     <main class="layout">
       <section class="timeline-panel">
         <header class="timeline-head">
           <h2 id="day-heading">Today</h2>
+          <button id="focus-btn" class="focus-btn" type="button" title="Start a focus timer (\f)">Focus</button>
           <div class="timeline-actions">
+            <button id="queue-btn" class="btn" type="button" title="Work one task at a time (\q)">Queue</button>
             <button id="date-prev" class="btn date-arrow" type="button" aria-label="Previous day" title="Previous day">‹</button>
             <input id="date-picker" class="date-picker" type="date" />
             <button id="date-next" class="btn date-arrow" type="button" aria-label="Next day" title="Next day">›</button>
@@ -59,8 +68,11 @@
           </header>
 
           <div class="tab-panel" id="inbox-panel" role="tabpanel">
+            <form id="inbox-form" class="task-create" autocomplete="off">
+              <input id="inbox-input" type="text" placeholder="Capture to inbox…" />
+            </form>
             <ul id="inbox-list" class="triage-list" aria-live="polite"></ul>
-            <p id="inbox-empty" class="muted empty">Nothing here. Drop anything above and Enter.</p>
+            <p id="inbox-empty" class="muted empty">Nothing here. Capture anything above and press Enter.</p>
           </div>
 
           <div class="tab-panel hidden" id="tasks-panel" role="tabpanel">
@@ -74,6 +86,10 @@
             <details id="tasks-snoozed-details" class="snoozed-details" hidden>
               <summary id="tasks-snoozed-summary"></summary>
               <ul id="tasks-snoozed-list" class="triage-list"></ul>
+            </details>
+            <details id="tasks-completed-details" class="snoozed-details" hidden>
+              <summary id="tasks-completed-summary"></summary>
+              <ul id="tasks-completed-list" class="triage-list"></ul>
             </details>
           </div>
 
@@ -202,6 +218,54 @@
             <button id="focus-close-btn" class="btn focus-action" type="button">Close</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div id="queue-overlay" class="queue-overlay hidden" aria-live="polite">
+      <div class="queue-overlay-content">
+        <button id="queue-exit-btn" class="queue-exit" type="button" aria-label="Exit queue" title="Exit (Esc)">×</button>
+
+        <div id="queue-state-running" class="queue-state">
+          <div class="queue-progress" id="queue-progress"></div>
+          <div class="queue-card">
+            <div class="queue-card-meta">
+              <span id="queue-priority" class="queue-priority"></span>
+              <span id="queue-due" class="queue-due"></span>
+            </div>
+            <h2 id="queue-title" class="queue-title"></h2>
+            <div id="queue-schedule" class="queue-schedule"></div>
+            <div id="queue-notes" class="queue-notes"></div>
+          </div>
+          <div class="queue-actions">
+            <button id="queue-skip-btn" class="btn queue-action" type="button" title="Skip — send to back (s)">→ Skip</button>
+            <button id="queue-complete-btn" class="btn primary queue-action" type="button" title="Complete (c)">✓ Complete</button>
+          </div>
+          <div class="queue-hint">
+            <kbd>c</kbd> complete · <kbd>s</kbd> skip · <kbd>Esc</kbd> exit
+          </div>
+        </div>
+
+        <div id="queue-state-empty" class="queue-state hidden">
+          <div class="queue-empty-headline">✓ All clear</div>
+          <div class="queue-empty-detail">Nothing left in today's queue.</div>
+          <button id="queue-empty-close-btn" class="btn primary queue-action" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="stats-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="stats-modal-title">
+      <div class="modal-backdrop" data-stats-close></div>
+      <div class="modal-content stats-content">
+        <div id="stats-modal-title" class="modal-title">Wins</div>
+        <div id="stats-tabs" class="stats-tabs" role="tablist">
+          <button type="button" class="stats-tab" data-window="today" role="tab">Today</button>
+          <button type="button" class="stats-tab" data-window="week" role="tab">Week</button>
+          <button type="button" class="stats-tab" data-window="month" role="tab">Month</button>
+          <button type="button" class="stats-tab" data-window="year" role="tab">Year</button>
+          <button type="button" class="stats-tab" data-window="all" role="tab">All-time</button>
+        </div>
+        <div id="stats-body" class="stats-body" role="tabpanel"></div>
+        <div class="modal-hint"><kbd>Esc</kbd> close</div>
       </div>
     </div>
 

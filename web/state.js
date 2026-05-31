@@ -5,7 +5,7 @@
 // via ``recomputeDayView`` so drag/resize collision checks (``overlaps``)
 // always see the latest schedule.
 
-import { todayKey } from "./time.js";
+import { todayKey, parseDateKey } from "./time.js";
 import { bus, EVENTS } from "./events.js";
 
 export let tasks = [];
@@ -29,21 +29,89 @@ export function shiftPriority(current, delta) {
   return PRIORITY_CYCLE[next];
 }
 
+// ----- Sticky-time recurrence projection (Tier 2 #15) -----
+
+// Sunday-indexed weekday tokens, matching the server's WEEKDAY_TOKENS set.
+// getDay() returns 0=Sun … 6=Sat, so index straight into this array.
+const WEEKDAY_TOKENS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+// If `task` carries a recurSchedule that lands on `dateKey`, return the
+// projected day-schedule ``{date, startMin, durationMin}``; otherwise null.
+// A projection is suppressed when:
+//   - the task is explicitly scheduled on that day already (the real
+//     schedule wins — dragging a sticky block "solidifies" it for the day),
+//   - the day is listed in recurExceptions (a one-day skip), or
+//   - the weekday isn't in recurSchedule.days (null/empty days = every day).
+// The projection is display-only: it never writes a schedule to disk until
+// the user drags/edits the block.
+export function projectedScheduleFor(task, dateKey) {
+  if (!task || !task.recurSchedule) return null;
+  if (task.schedule && task.schedule.date === dateKey) return null;
+  if (
+    Array.isArray(task.recurExceptions) &&
+    task.recurExceptions.includes(dateKey)
+  ) {
+    return null;
+  }
+  const rs = task.recurSchedule;
+  const days = rs.days;
+  if (Array.isArray(days) && days.length) {
+    const token = WEEKDAY_TOKENS[parseDateKey(dateKey).getDay()];
+    if (!days.includes(token)) return null;
+  }
+  return {
+    date: dateKey,
+    startMin: rs.startMin,
+    durationMin: rs.durationMin,
+  };
+}
+
+function rangesOverlap(aStart, aDur, bStart, bDur) {
+  return aStart < bStart + bDur && aStart + aDur > bStart;
+}
+
 // ----- Derived day view -----
 
+function dayEntry(task, schedule, sticky) {
+  return {
+    id: task.id,
+    title: task.title,
+    startMin: schedule.startMin,
+    durationMin: schedule.durationMin,
+    // isDoneToday folds the recurring "resets at midnight" rule in, so a
+    // recurring block completed yesterday shows as undone today.
+    done: isDoneToday(task),
+    notes: task.notes || null,
+    priority: priorityOf(task),
+    sticky: !!sticky,
+  };
+}
+
 function deriveDayTasks() {
-  return tasks
-    .filter((t) => t.schedule && t.schedule.date === currentDate)
-    .map((t) => ({
-      id: t.id,
-      title: t.title,
-      startMin: t.schedule.startMin,
-      durationMin: t.schedule.durationMin,
-      done: !!t.done,
-      notes: t.notes || null,
-      priority: priorityOf(t),
-    }))
-    .sort((a, b) => a.startMin - b.startMin);
+  const entries = [];
+  // Explicit schedules first — they own their slot.
+  for (const t of tasks) {
+    if (t.schedule && t.schedule.date === currentDate) {
+      entries.push(dayEntry(t, t.schedule, false));
+    }
+  }
+  // Then sticky projections, in start-time order, skipping any that would
+  // collide with an already-placed block (explicit or an earlier sticky).
+  const projections = [];
+  for (const t of tasks) {
+    if (t.schedule && t.schedule.date === currentDate) continue;
+    const proj = projectedScheduleFor(t, currentDate);
+    if (proj) projections.push({ task: t, proj });
+  }
+  projections.sort((a, b) => a.proj.startMin - b.proj.startMin);
+  for (const { task, proj } of projections) {
+    const conflict = entries.some((e) =>
+      rangesOverlap(proj.startMin, proj.durationMin, e.startMin, e.durationMin),
+    );
+    if (conflict) continue;
+    entries.push(dayEntry(task, proj, true));
+  }
+  return entries.sort((a, b) => a.startMin - b.startMin);
 }
 
 function recomputeDayView() {
@@ -115,6 +183,23 @@ export function isSnoozedNow(task) {
 // the question without reaching into task.schedule.date themselves.
 export function isScheduledToday(task) {
   return !!(task && task.schedule && task.schedule.date === todayKey());
+}
+
+// True when the task's schedule.date is in the past and it hasn't been
+// done for that day. Used by the Tasks-tab row to flag rolled-over work
+// (Tier 2 #6) so the user sees "this got missed yesterday."
+export function isRolledOver(task) {
+  if (!task || !task.schedule) return false;
+  if (task.schedule.date >= todayKey()) return false; // YYYY-MM-DD lexicographic compare
+  return !isDoneToday(task);
+}
+
+// True when the task is "completed" in a way that lets the Tasks tab
+// hide it under the "Completed (N)" disclosure (Tier 2 #6). Recurring
+// tasks stay visible even when checked done today — that's the whole
+// point of the recurring affordance — so this returns false for them.
+export function isHidableComplete(task) {
+  return !!task && !task.recurring && task.done;
 }
 
 // Lightweight view used by slot-finding code. Keeps only the geometry fields

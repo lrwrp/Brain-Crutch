@@ -205,9 +205,11 @@ def test_non_recurring_shows_muted_recurring_glyph(page, live_server):
 
 
 @pytest.mark.e2e
-def test_clicking_recurring_slot_toggles_flag(page, live_server):
-    """Click ↻ → recurring on; click again → off. Updates round-trip via
-    PATCH so a reload preserves the new state."""
+def test_recurring_slot_opens_popover_to_toggle_flag(page, live_server):
+    """Click ↻ → recur popover opens. "Daily, no set time" turns the plain
+    recurring flag on (no sticky schedule); "Stop repeating" turns it back
+    off. Both round-trip via PATCH so a reload preserves the new state.
+    (The sticky-schedule cadences are covered in test_sticky_recurring.)"""
     page.goto(live_server.url)
     _make_task(page, title="toggleable")
     page.reload()
@@ -217,20 +219,74 @@ def test_clicking_recurring_slot_toggles_flag(page, live_server):
     expect(recur).to_have_attribute("data-recurring", "false")
 
     recur.click()
+    menu = page.locator(".recur-menu")
+    expect(menu).to_be_visible()
+    menu.locator(".recur-option", has_text="Daily, no set time").click()
     expect(recur).to_have_attribute("data-recurring", "true")
 
     # Persist across reload.
     page.reload()
     row = page.locator("#tasks-list .triage-item").filter(has_text="toggleable")
-    expect(row.locator(".ti-recurring")).to_have_attribute(
-        "data-recurring", "true"
+    recur = row.locator(".ti-recurring")
+    expect(recur).to_have_attribute("data-recurring", "true")
+
+    # And back off via "Stop repeating".
+    recur.click()
+    menu = page.locator(".recur-menu")
+    expect(menu).to_be_visible()
+    menu.locator(".recur-option", has_text="Stop repeating").click()
+    expect(recur).to_have_attribute("data-recurring", "false")
+
+
+@pytest.mark.e2e
+def test_recur_popover_stays_in_viewport_near_bottom(page, live_server):
+    """Regression: a ↻ popover opened from a row near the bottom of the
+    screen used to extend past the viewport bottom and get clipped. It now
+    flips above the anchor (and is clamped) so the whole menu stays
+    on-screen."""
+    page.set_viewport_size({"width": 1280, "height": 360})
+    page.goto(live_server.url)
+    for i in range(8):
+        _make_task(page, title=f"bottom row {i}")
+    page.reload()
+
+    last = page.locator("#tasks-list .triage-item").last
+    last.scroll_into_view_if_needed()
+    last.locator(".ti-recurring").click()
+
+    menu = page.locator(".recur-menu")
+    expect(menu).to_be_visible()
+    box = menu.bounding_box()
+    vh = page.viewport_size["height"]
+    assert box is not None
+    assert box["y"] >= -1, f"menu top {box['y']} above viewport"
+    assert box["y"] + box["height"] <= vh + 1, (
+        f"menu bottom {box['y'] + box['height']} exceeds viewport height {vh}"
     )
 
-    # And back off.
-    row.locator(".ti-recurring").click()
-    expect(row.locator(".ti-recurring")).to_have_attribute(
-        "data-recurring", "false"
-    )
+
+# --- Action hit boxes ----------------------------------------------------
+
+
+@pytest.mark.e2e
+def test_done_and_delete_buttons_meet_min_hit_box(page, live_server):
+    """Both the done (✓) and delete (×) buttons must keep a ≥28×28 hit box
+    even on a single-line task, which is the worst case: with no schedule
+    or subline the row collapses to title height, so the action bar needs
+    a min-height floor to keep the stacked buttons tappable."""
+    page.goto(live_server.url)
+    _make_task(page, title="bare row")
+    page.reload()
+
+    row = page.locator("#tasks-list .triage-item").filter(has_text="bare row")
+    done = row.locator(".ti-done .action-btn")
+    delete = row.locator(".ti-del .action-btn")
+
+    for label, btn in (("done", done), ("delete", delete)):
+        box = btn.bounding_box()
+        assert box is not None, f"{label} button has no box"
+        assert box["width"] >= 28, f"{label} width {box['width']} < 28"
+        assert box["height"] >= 28, f"{label} height {box['height']} < 28"
 
 
 # --- Due date ------------------------------------------------------------

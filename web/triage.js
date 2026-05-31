@@ -17,8 +17,13 @@ import {
   tasksSnoozedDetailsEl,
   tasksSnoozedSummaryEl,
   tasksSnoozedListEl,
+  tasksCompletedDetailsEl,
+  tasksCompletedSummaryEl,
+  tasksCompletedListEl,
   taskForm,
   taskInputEl,
+  inboxForm,
+  inboxInputEl,
 } from "./dom.js";
 import {
   tasks,
@@ -33,9 +38,13 @@ import {
   isDoneToday,
   isSnoozedNow,
   isScheduledToday,
+  isRolledOver,
+  isHidableComplete,
+  projectedScheduleFor,
 } from "./state.js";
 import {
   fetchInbox,
+  submitCapture,
   createTaskRecord,
   patchTaskRecord,
   deleteTaskRecord,
@@ -357,6 +366,28 @@ function scheduleSub(task) {
   return `${d} ${fmtMin(task.schedule.startMin)}`;
 }
 
+// Human-readable cadence for a task's recurSchedule, e.g. "weekdays at
+// 9:00", "every day at 14:30", or "Mon, Wed at 8:00". Returns "" when the
+// task has no recurSchedule. Used for the recur sub-line and tooltips.
+const WEEKDAY_SET = ["mon", "tue", "wed", "thu", "fri"];
+function describeRecur(task) {
+  const rs = task && task.recurSchedule;
+  if (!rs) return "";
+  const at = `at ${fmtMin(rs.startMin)}`;
+  const days = rs.days;
+  if (!Array.isArray(days) || days.length === 0) return `every day ${at}`;
+  const set = new Set(days);
+  const isWeekdays =
+    set.size === 5 && WEEKDAY_SET.every((d) => set.has(d));
+  if (isWeekdays) return `weekdays ${at}`;
+  // Preserve a Mon→Sun reading order regardless of stored order.
+  const ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const labels = ORDER.filter((d) => set.has(d)).map(
+    (d) => d.charAt(0).toUpperCase() + d.slice(1),
+  );
+  return `${labels.join(", ")} ${at}`;
+}
+
 function buildAttachSection(title, options) {
   const wrap = document.createElement("div");
   wrap.className = "attach-section";
@@ -431,20 +462,31 @@ function sortByPriority(items) {
 }
 
 function renderTasksList() {
-  // Snoozed tasks live in their own collapsible section at the bottom of
-  // the Tasks tab; everything else fills the main list. Sort the main list
-  // by priority desc then createdAt desc (existing rule).
-  const live = tasks.filter((t) => !isSnoozedNow(t));
-  const snoozed = tasks
-    .filter(isSnoozedNow)
-    .sort((a, b) => a.snoozedUntil - b.snoozedUntil);
+  // Each task lands in exactly one bucket:
+  //   - snoozed (snoozedUntil in the future)             → Snoozed disclosure
+  //   - completed non-recurring (isHidableComplete)      → Completed disclosure
+  //   - everything else                                  → main list
+  // Recurring tasks always show in the main list, even when checked done
+  // today, because the recurring affordance is "see status + re-complete
+  // tomorrow."
+  const snoozed = [];
+  const completed = [];
+  const live = [];
+  for (const t of tasks) {
+    if (isSnoozedNow(t)) snoozed.push(t);
+    else if (isHidableComplete(t)) completed.push(t);
+    else live.push(t);
+  }
+  snoozed.sort((a, b) => a.snoozedUntil - b.snoozedUntil);
+  // Completed: most recently finished first.
+  completed.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
   const sortedLive = sortByPriority(live);
 
   tasksListEl.replaceChildren();
   for (const t of sortedLive) tasksListEl.appendChild(renderTaskRow(t));
 
   tasksCountEl.textContent = String(tasks.length);
-  // Empty state only when there's nothing in either section.
+  // Empty state only when there's nothing in any section.
   tasksEmptyEl.style.display = tasks.length ? "none" : "";
 
   // Snoozed disclosure.
@@ -457,6 +499,20 @@ function renderTasksList() {
     tasksSnoozedListEl.replaceChildren();
     for (const t of snoozed) {
       tasksSnoozedListEl.appendChild(renderTaskRow(t, { snoozedView: true }));
+    }
+  }
+
+  // Completed disclosure (Tier 2 #6). Sibling pattern to Snoozed; reusing
+  // the .snoozed-details class for the dashed separator + summary styling.
+  if (completed.length === 0) {
+    tasksCompletedDetailsEl.hidden = true;
+    tasksCompletedListEl.replaceChildren();
+  } else {
+    tasksCompletedDetailsEl.hidden = false;
+    tasksCompletedSummaryEl.textContent = `Completed (${completed.length})`;
+    tasksCompletedListEl.replaceChildren();
+    for (const t of completed) {
+      tasksCompletedListEl.appendChild(renderTaskRow(t));
     }
   }
 }
@@ -492,7 +548,14 @@ function renderTaskRow(task, opts = {}) {
   const arrow = document.createElement("button");
   arrow.type = "button";
   arrow.className = "ti-slot ti-arrow";
-  const onToday = task.schedule && task.schedule.date === todayKey();
+  // "On today" is true for an explicit schedule on today's key OR a sticky
+  // projection that lands today (recurSchedule with no real schedule). The
+  // remove-branch differs: an explicit schedule clears to null, while a
+  // projected block adds today to recurExceptions ("skip today").
+  const realToday = !!(task.schedule && task.schedule.date === todayKey());
+  const projectedToday =
+    !realToday && !!projectedScheduleFor(task, todayKey());
+  const onToday = realToday || projectedToday;
   arrow.textContent = onToday ? "›" : "‹";
   arrow.title = onToday
     ? "Remove from today's timeline"
@@ -507,8 +570,23 @@ function renderTaskRow(task, opts = {}) {
     e.stopPropagation();
     arrow.disabled = true;
     try {
-      if (onToday) {
+      if (realToday) {
         const updated = await patchTaskRecord(task.id, { schedule: null });
+        if (!updated) {
+          showToast("Save failed");
+          return;
+        }
+        upsertTaskLocal(updated);
+      } else if (projectedToday) {
+        // Sticky block: skip just today by adding an exception.
+        const ex = Array.isArray(task.recurExceptions)
+          ? task.recurExceptions.slice()
+          : [];
+        const key = todayKey();
+        if (!ex.includes(key)) ex.push(key);
+        const updated = await patchTaskRecord(task.id, {
+          recurExceptions: ex,
+        });
         if (!updated) {
           showToast("Save failed");
           return;
@@ -531,12 +609,25 @@ function renderTaskRow(task, opts = {}) {
   titleText.textContent = task.title;
   titleSlot.appendChild(titleText);
   // A small sub-line carries the schedule chip when present (the day +
-  // start time, not the × — the arrow handles unschedule now).
+  // start time, not the × — the arrow handles unschedule now). When the
+  // task is scheduled on a past date and isn't done for that day, tag
+  // the subline as "rolled-over" so the user sees "this got missed."
   if (task.schedule) {
     const sched = document.createElement("div");
     sched.className = "ti-subline";
+    if (isRolledOver(task)) sched.classList.add("ti-rolled-over");
     sched.textContent = scheduleSub(task);
     titleSlot.appendChild(sched);
+  }
+  // Sticky-recurrence sub-line (Tier 2 #15): when a task carries a
+  // recurSchedule, show its cadence + time so the user can see "this lands
+  // at 9:00 on weekdays" without opening the popover. Shown alongside any
+  // explicit schedule subline (a solidified day still keeps its recur rule).
+  if (task.recurSchedule) {
+    const rec = document.createElement("div");
+    rec.className = "ti-subline ti-recur-sub";
+    rec.textContent = "↻ " + describeRecur(task);
+    titleSlot.appendChild(rec);
   }
   if (snoozedView && task.snoozedUntil) {
     const wake = document.createElement("div");
@@ -557,33 +648,26 @@ function renderTaskRow(task, opts = {}) {
 
   // .ti-recurring — chasing-arrow toggle. Always shows ↻; the
   // `data-recurring` attribute drives bright-vs-muted styling, matching
-  // how delete sits muted at rest. Click toggles the flag (when on, the
-  // task stays visible after being checked done and resets the next
-  // local day; see state.js#isDoneToday).
+  // how delete sits muted at rest. Click opens the recur popover (Tier 2
+  // #15): pick a sticky cadence (every day / weekdays / custom + start
+  // time), keep the plain "resets at midnight" recurring flag, or stop
+  // repeating entirely. A task counts as recurring (bright ↻) when it
+  // carries either the recurring flag or a recurSchedule.
   const recurSlot = document.createElement("button");
   recurSlot.type = "button";
   recurSlot.className = "ti-slot ti-recurring";
   recurSlot.textContent = "↻";
-  recurSlot.dataset.recurring = task.recurring ? "true" : "false";
-  recurSlot.title = task.recurring
-    ? "Recurring — click to make one-shot"
-    : "One-shot — click to make recurring";
+  const isRecurring = !!(task.recurring || task.recurSchedule);
+  recurSlot.dataset.recurring = isRecurring ? "true" : "false";
+  recurSlot.title = task.recurSchedule
+    ? `Recurring (${describeRecur(task)}) — click to change`
+    : task.recurring
+      ? "Recurring — click to change"
+      : "One-shot — click to make recurring";
   recurSlot.addEventListener("pointerdown", (e) => e.stopPropagation());
-  recurSlot.addEventListener("click", async (e) => {
+  recurSlot.addEventListener("click", (e) => {
     e.stopPropagation();
-    recurSlot.disabled = true;
-    try {
-      const updated = await patchTaskRecord(task.id, {
-        recurring: !task.recurring,
-      });
-      if (!updated) {
-        showToast("Save failed");
-        return;
-      }
-      upsertTaskLocal(updated);
-    } finally {
-      recurSlot.disabled = false;
-    }
+    openRecurPopover(task.id, recurSlot);
   });
   li.appendChild(recurSlot);
 
@@ -698,6 +782,36 @@ function renderTaskRow(task, opts = {}) {
   return li;
 }
 
+// ----- Popover positioning (shared by snooze + recur) ----------------
+
+// Place a fixed popover relative to its anchor button. Prefers opening below
+// the anchor, but flips above when the menu would overflow the bottom of the
+// viewport — the case where a task row sits near the bottom of the screen and
+// a tall menu (the recur popover especially) would otherwise be cut off and
+// unreachable. Right-aligned to the anchor so it never runs off the right
+// edge; the top is clamped so the menu can't sit off the top either. The
+// popover must already be in the DOM (so offsetHeight is measurable).
+function positionPopover(pop, anchorBtn) {
+  const rect = anchorBtn.getBoundingClientRect();
+  const gap = 6;
+  const margin = 8;
+  pop.style.position = "fixed";
+  pop.style.right = `${window.innerWidth - rect.right}px`;
+  pop.style.zIndex = "200";
+  const popH = pop.offsetHeight;
+  const fitsBelow = rect.bottom + gap + popH <= window.innerHeight - margin;
+  let top;
+  if (fitsBelow) {
+    top = rect.bottom + gap;
+  } else {
+    const above = rect.top - gap - popH;
+    // Flip above when there's room; otherwise clamp so the whole menu stays
+    // on-screen (max-height in CSS keeps it from exceeding the viewport).
+    top = above >= margin ? above : Math.max(margin, window.innerHeight - popH - margin);
+  }
+  pop.style.top = `${top}px`;
+}
+
 // ----- Snooze popover ------------------------------------------------
 
 // Single in-flight popover at a time. Anchored to the button that opened
@@ -744,15 +858,10 @@ function openSnoozePopover(taskId, anchorBtn) {
     });
     pop.appendChild(opt);
   }
-  // Anchor: append after the button's row, then position via inline style
-  // relative to the anchor's viewport rect.
+  // Anchor: append to the DOM, then position (flips above when near the
+  // bottom edge so the menu is never clipped off-screen).
   document.body.appendChild(pop);
-  const rect = anchorBtn.getBoundingClientRect();
-  pop.style.position = "fixed";
-  pop.style.top = `${rect.bottom + 6}px`;
-  // Right-align so the menu doesn't overflow off-screen on narrow viewports.
-  pop.style.right = `${window.innerWidth - rect.right}px`;
-  pop.style.zIndex = "200";
+  positionPopover(pop, anchorBtn);
 
   openSnoozePopoverEl = pop;
   openSnoozeOutsideHandler = (e) => {
@@ -762,6 +871,208 @@ function openSnoozePopover(taskId, anchorBtn) {
   // Capture-phase so we run before the click that dismissed the popover
   // might re-open it (defensive).
   document.addEventListener("pointerdown", openSnoozeOutsideHandler, true);
+}
+
+// ----- Recur popover (Tier 2 #15) ------------------------------------
+
+// Mirrors the snooze popover lifecycle: one in-flight popover, anchored to
+// the ↻ button, dismissed on outside click. Lets the user pick a sticky
+// cadence (every day / weekdays / chosen days, all at a chosen start time),
+// fall back to plain "resets-at-midnight" recurring with no fixed time, or
+// stop repeating entirely.
+let openRecurPopoverEl = null;
+let openRecurOutsideHandler = null;
+const RECUR_DEFAULT_DURATION_MIN = 30;
+const WEEKDAY_LABELS = [
+  ["mon", "Mon"],
+  ["tue", "Tue"],
+  ["wed", "Wed"],
+  ["thu", "Thu"],
+  ["fri", "Fri"],
+  ["sat", "Sat"],
+  ["sun", "Sun"],
+];
+
+function closeRecurPopover() {
+  if (openRecurPopoverEl) openRecurPopoverEl.remove();
+  openRecurPopoverEl = null;
+  if (openRecurOutsideHandler) {
+    document.removeEventListener("pointerdown", openRecurOutsideHandler, true);
+    openRecurOutsideHandler = null;
+  }
+}
+
+function minToTimeInput(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function timeInputToMin(value) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value || "");
+  if (!m) return null;
+  const min = Number(m[1]) * 60 + Number(m[2]);
+  if (min < 0 || min > 24 * 60) return null;
+  return min;
+}
+
+function openRecurPopover(taskId, anchorBtn) {
+  closeRecurPopover();
+  const task = getTask(taskId);
+  if (!task) return;
+
+  const rs = task.recurSchedule;
+  const durationMin = rs && rs.durationMin ? rs.durationMin : RECUR_DEFAULT_DURATION_MIN;
+
+  const pop = document.createElement("div");
+  pop.className = "recur-menu";
+
+  // Start-time input. Seed from the existing recurSchedule, else 9:00.
+  const timeRow = document.createElement("label");
+  timeRow.className = "recur-time-row";
+  const timeLabel = document.createElement("span");
+  timeLabel.textContent = "Lands at";
+  const timeInput = document.createElement("input");
+  timeInput.type = "time";
+  timeInput.className = "recur-time-input";
+  timeInput.value = minToTimeInput(rs ? rs.startMin : 9 * 60);
+  timeRow.appendChild(timeLabel);
+  timeRow.appendChild(timeInput);
+  pop.appendChild(timeRow);
+
+  // Weekday chips for the "selected days" cadence. Seeded from the existing
+  // days (if the task already has a custom set).
+  const chipRow = document.createElement("div");
+  chipRow.className = "recur-chips";
+  const selected = new Set(
+    rs && Array.isArray(rs.days) ? rs.days : [],
+  );
+  for (const [token, label] of WEEKDAY_LABELS) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "recur-chip";
+    chip.textContent = label;
+    chip.dataset.on = selected.has(token) ? "true" : "false";
+    chip.addEventListener("click", () => {
+      const on = chip.dataset.on === "true";
+      chip.dataset.on = on ? "false" : "true";
+    });
+    chipRow.appendChild(chip);
+  }
+  pop.appendChild(chipRow);
+
+  const applySchedule = async (days) => {
+    const startMin = timeInputToMin(timeInput.value);
+    if (startMin === null) {
+      showToast("Enter a valid time");
+      return;
+    }
+    const updated = await patchTaskRecord(taskId, {
+      recurring: true,
+      recurSchedule: { startMin, durationMin, days: days || null },
+    });
+    if (!updated) {
+      showToast("Save failed");
+      return;
+    }
+    upsertTaskLocal(updated);
+    closeRecurPopover();
+  };
+
+  const addOption = (label, onClick, variant) => {
+    const opt = document.createElement("button");
+    opt.type = "button";
+    opt.className = "recur-option" + (variant ? ` ${variant}` : "");
+    opt.textContent = label;
+    opt.addEventListener("click", onClick);
+    pop.appendChild(opt);
+    return opt;
+  };
+
+  addOption("Every day", () => applySchedule(null));
+  addOption("Weekdays", () => applySchedule(["mon", "tue", "wed", "thu", "fri"]));
+  addOption("Selected days", () => {
+    const chosen = [];
+    chipRow.querySelectorAll(".recur-chip").forEach((c, i) => {
+      if (c.dataset.on === "true") chosen.push(WEEKDAY_LABELS[i][0]);
+    });
+    if (chosen.length === 0) {
+      showToast("Pick at least one day");
+      return;
+    }
+    applySchedule(chosen);
+  });
+
+  const divider = document.createElement("div");
+  divider.className = "recur-divider";
+  pop.appendChild(divider);
+
+  // Plain recurring (no fixed time): resets at midnight, stays on the list.
+  addOption("Daily, no set time", async () => {
+    const updated = await patchTaskRecord(taskId, {
+      recurring: true,
+      recurSchedule: null,
+    });
+    if (!updated) {
+      showToast("Save failed");
+      return;
+    }
+    upsertTaskLocal(updated);
+    closeRecurPopover();
+  });
+
+  // Stop repeating: drop both the flag and any sticky schedule.
+  if (task.recurring || task.recurSchedule) {
+    addOption(
+      "Stop repeating",
+      async () => {
+        const updated = await patchTaskRecord(taskId, {
+          recurring: false,
+          recurSchedule: null,
+        });
+        if (!updated) {
+          showToast("Save failed");
+          return;
+        }
+        upsertTaskLocal(updated);
+        closeRecurPopover();
+      },
+      "danger",
+    );
+  }
+
+  document.body.appendChild(pop);
+  positionPopover(pop, anchorBtn);
+
+  openRecurPopoverEl = pop;
+  openRecurOutsideHandler = (e) => {
+    if (pop.contains(e.target) || anchorBtn.contains(e.target)) return;
+    closeRecurPopover();
+  };
+  document.addEventListener("pointerdown", openRecurOutsideHandler, true);
+}
+
+// Inline Inbox capture bar — mirrors initTaskForm but posts to /api/inbox.
+// Gives a touch-only (keyboard-free) path to quick-capture, since the `\n`
+// slash-command modal is unreachable on a phone.
+export function initInboxForm() {
+  inboxForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = inboxInputEl.value.trim();
+    if (!text) return;
+    inboxInputEl.value = "";
+    const ok = await submitCapture(text);
+    if (ok) {
+      await loadInbox();
+      // Blur on success so a follow-up `\n` / `\t` slash-command keystroke
+      // routes to the document rather than this still-focused input.
+      inboxInputEl.blur();
+    } else {
+      inboxInputEl.value = text;
+      showToast("Capture failed");
+      inboxInputEl.focus();
+    }
+  });
 }
 
 export function initTaskForm() {

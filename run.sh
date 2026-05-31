@@ -35,4 +35,3 @@ URL="http://localhost:1440"
 
 echo "Starting on $URL — Ctrl-C to stop."
 exec uv run --no-dev python server.py
-

@@ -5,12 +5,16 @@ const $ = (sel) => document.querySelector(sel);
 
 export const clockEl = $("#clock");
 export const dateEl = $("#date");
+export const dateWeekdayEl = $("#date-weekday");
+export const dateMonthDayEl = $("#date-monthday");
 export const winsEl = $("#wins");
 export const winsStarsEl = $("#wins-stars");
 
 export const list = $("#inbox-list");
 export const countEl = $("#inbox-count");
 export const emptyEl = $("#inbox-empty");
+export const inboxForm = $("#inbox-form");
+export const inboxInputEl = $("#inbox-input");
 
 export const toast = $("#toast");
 
@@ -31,6 +35,10 @@ export const dayHeadingEl = $("#day-heading");
 export const tabButtons = document.querySelectorAll(".tab");
 export const tabPanels = document.querySelectorAll(".tab-panel");
 
+// Top-level mobile view switcher (Timeline / Triage). Hidden on desktop via
+// CSS; the buttons toggle body[data-mobile-view].
+export const appViewButtons = document.querySelectorAll(".app-view");
+
 export const taskForm = $("#task-form");
 export const taskInputEl = $("#task-input");
 export const tasksCountEl = $("#tasks-count");
@@ -39,6 +47,13 @@ export const tasksEmptyEl = $("#tasks-empty");
 export const tasksSnoozedDetailsEl = $("#tasks-snoozed-details");
 export const tasksSnoozedSummaryEl = $("#tasks-snoozed-summary");
 export const tasksSnoozedListEl = $("#tasks-snoozed-list");
+export const tasksCompletedDetailsEl = $("#tasks-completed-details");
+export const tasksCompletedSummaryEl = $("#tasks-completed-summary");
+export const tasksCompletedListEl = $("#tasks-completed-list");
+
+export const statsModal = $("#stats-modal");
+export const statsTabsEl = $("#stats-tabs");
+export const statsBodyEl = $("#stats-body");
 
 export const modalEl = $("#capture-modal");
 export const modalTitleEl = $("#capture-modal-title");
@@ -68,3 +83,19 @@ export const focusCancelBtn = $("#focus-cancel-btn");
 export const focusRestartBtn = $("#focus-restart-btn");
 export const focusCloseBtn = $("#focus-close-btn");
 export const focusDoneDetailEl = $("#focus-done-detail");
+
+// Focus queue (one task at a time).
+export const queueBtn = $("#queue-btn");
+export const queueOverlayEl = $("#queue-overlay");
+export const queueExitBtn = $("#queue-exit-btn");
+export const queueStateRunningEl = $("#queue-state-running");
+export const queueStateEmptyEl = $("#queue-state-empty");
+export const queueProgressEl = $("#queue-progress");
+export const queuePriorityEl = $("#queue-priority");
+export const queueDueEl = $("#queue-due");
+export const queueTitleEl = $("#queue-title");
+export const queueScheduleEl = $("#queue-schedule");
+export const queueNotesEl = $("#queue-notes");
+export const queueSkipBtn = $("#queue-skip-btn");
+export const queueCompleteBtn = $("#queue-complete-btn");
+export const queueEmptyCloseBtn = $("#queue-empty-close-btn");

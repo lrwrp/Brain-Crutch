@@ -72,7 +72,7 @@ def new_id() -> str:
 # function in _UPGRADES. load_versioned() chains upgrades on read and persists
 # the result so old files become current-shaped after a single read.
 
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 
 def _upgrade_v0_to_v1(data: dict) -> dict:
@@ -101,7 +101,25 @@ def _upgrade_v1_to_v2(data: dict) -> dict:
     return data
 
 
-_UPGRADES = {0: _upgrade_v0_to_v1, 1: _upgrade_v1_to_v2}
+def _upgrade_v2_to_v3(data: dict) -> dict:
+    """Introduce sticky-time recurrence fields (Tier 2 #15).
+
+    The new ``recurSchedule`` (optional sticky-time spec: startMin /
+    durationMin / days) and ``recurExceptions`` (list of YYYY-MM-DD dates to
+    skip) get backfilled lazily by ``_normalize_task`` on read — same pattern
+    the v1→v2 upgrade used for snoozedUntil/recurring/dueDate. So this upgrade
+    is a pure version bump: it touches no items, which also keeps the shared
+    upgrade path from polluting inbox records with task-only fields.
+    """
+    data["version"] = 3
+    return data
+
+
+_UPGRADES = {
+    0: _upgrade_v0_to_v1,
+    1: _upgrade_v1_to_v2,
+    2: _upgrade_v2_to_v3,
+}
 
 
 def load_versioned(path: Path) -> dict:
@@ -211,6 +229,8 @@ def migrate_days(days_dir: Path, tasks_file: Path, *, now: float) -> dict:
                     "dueDate": None,
                     "recurring": False,
                     "snoozedUntil": None,
+                    "recurSchedule": None,
+                    "recurExceptions": [],
                     "createdAt": now,
                     "updatedAt": now,
                     "completedAt": None,

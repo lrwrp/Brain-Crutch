@@ -4,7 +4,8 @@
 
 import {
   clockEl,
-  dateEl,
+  dateWeekdayEl,
+  dateMonthDayEl,
   datePicker,
   datePrevBtn,
   dateNextBtn,
@@ -13,7 +14,8 @@ import {
 } from "./dom.js";
 import {
   TIME_FMT,
-  DATE_FMT,
+  DATE_FMT_WEEKDAY,
+  DATE_FMT_MONTH_DAY,
   todayKey,
   describeDay,
 } from "./time.js";
@@ -24,20 +26,24 @@ import {
 } from "./state.js";
 import { fetchTasks } from "./api.js";
 import { showToast } from "./toast.js";
-import { initTabs, initTaskForm, loadInbox } from "./triage.js";
+import { initTabs, initTaskForm, initInboxForm, loadInbox } from "./triage.js";
 import { initTimeline } from "./timeline.js";
 import { initModal } from "./modal.js";
 import { initNotesEditor } from "./notes.js";
 import { initNotesReader } from "./notes-read.js";
 import { initWinsCounter } from "./wins.js";
+import { initStatsModal } from "./stats.js";
 import { initCalendarOverlay } from "./calendar.js";
 import { initFocusTimer } from "./focus.js";
+import { initQueue } from "./queue.js";
+import { initAppViews } from "./views.js";
 import { initKeyboard } from "./keyboard.js";
 
 function tickClock() {
   const now = new Date();
   clockEl.textContent = TIME_FMT.format(now);
-  dateEl.textContent = DATE_FMT.format(now);
+  dateWeekdayEl.textContent = DATE_FMT_WEEKDAY.format(now);
+  dateMonthDayEl.textContent = DATE_FMT_MONTH_DAY.format(now);
 }
 
 export function setDate(d) {
@@ -86,13 +92,17 @@ function initDatePicker() {
 
 initTabs();
 initTaskForm();
+initInboxForm();
 initTimeline();
 initModal();
 initNotesEditor();
 initNotesReader();
 initWinsCounter();
+initStatsModal();
 initCalendarOverlay();
 initFocusTimer();
+initQueue();
+initAppViews();
 initKeyboard();
 initDatePicker();
 

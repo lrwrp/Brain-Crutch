@@ -1,16 +1,17 @@
 // Time/date primitives and timeline constants. Pure functions, no DOM, no
 // state — safe to import from anywhere.
 
-// Two-window model: the timeline canvas spans the full 24 hours so the user
-// can drag late-night / pre-dawn tasks freely, but the *focus* window
-// (08:00–20:00) is what `findFreeSlotIn` searches for auto-scheduling
-// (+task / Today). Manual drag/resize/W-S use TIMELINE bounds; auto-schedule
-// uses FOCUS bounds. Keeping the legacy names (DAY_START/END) on the focus
-// pair so existing call sites and tests don't need to rewire.
+// One canvas, one search window: the timeline spans the full 24 hours and
+// `findFreeSlotIn` / `nearestFreeSlot` both search across all of it (Tier 2
+// #18). The 08:00–20:00 constants survive as a *visual* focus window —
+// styles.css uses them for the off-hours backdrop (Tier 2 #19), and
+// findFreeSlotIn uses DAY_START_MIN as the *cursor seed* for non-today days
+// (when scheduling on a future date, start looking from 8 AM rather than
+// midnight — purely a UX hint, not a hard bound).
 export const TIMELINE_START_MIN = 0;
 export const TIMELINE_END_MIN = 24 * 60;
-export const DAY_START_MIN = 8 * 60; // auto-schedule lower bound
-export const DAY_END_MIN = 20 * 60; // auto-schedule upper bound
+export const DAY_START_MIN = 8 * 60; // focus window start — visual + non-today cursor seed
+export const DAY_END_MIN = 20 * 60; // focus window end — visual only
 export const PX_PER_MIN = 1;
 export const SNAP_MIN = 15;
 export const DEFAULT_DURATION_MIN = 30;
@@ -21,9 +22,13 @@ export const TIME_FMT = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
   hour12: false,
 });
-export const DATE_FMT = new Intl.DateTimeFormat(undefined, {
+// Topbar date renders as two stacked lines (Tier 2 #14): weekday on top,
+// month + day below. Two formatters keep each line locale-respecting.
+export const DATE_FMT_WEEKDAY = new Intl.DateTimeFormat(undefined, {
   weekday: "long",
-  month: "short",
+});
+export const DATE_FMT_MONTH_DAY = new Intl.DateTimeFormat(undefined, {
+  month: "long",
   day: "numeric",
 });
 export const DATE_FMT_SHORT = new Intl.DateTimeFormat(undefined, {
@@ -228,27 +233,33 @@ export function nearestFreeSlot(otherTasks, desiredStart, duration, opts = {}) {
   return null;
 }
 
-// Pure slot-search: walks the day window from a sensible start (now if today,
+// Pure slot-search: walks the day from a sensible cursor (now if today,
 // 08:00 otherwise), skips over each blocker, and returns the first gap that
 // fits at least SNAP_MIN minutes (clamped to ``preferredDuration``).
 // Returns ``null`` if the day is full.
+//
+// Tier 2 #18 lifted the upper bound from 20:00 to 24:00 and stopped clamping
+// today's cursor to 08:00 — scheduling at 23:00 or 06:00 now works rather
+// than silently failing.
 export function findFreeSlotIn(tasksOnDay, dateStr, preferredDuration) {
   const isToday = dateStr === todayKey();
   let cursor;
   if (isToday) {
     const now = nowMinutes();
-    cursor = snap(Math.max(now, DAY_START_MIN));
+    cursor = snap(now);
     if (cursor < now) cursor += SNAP_MIN;
   } else {
+    // Future / past days: start the search at the user's typical workday
+    // start (8 AM). Not a restriction — the search walks all the way to
+    // midnight, this is just where the cursor begins.
     cursor = DAY_START_MIN;
   }
-  cursor = Math.max(cursor, DAY_START_MIN);
 
   const sorted = tasksOnDay.slice().sort((a, b) => a.startMin - b.startMin);
 
-  while (cursor < DAY_END_MIN) {
+  while (cursor < TIMELINE_END_MIN) {
     const blocker = sorted.find((t) => t.startMin + t.durationMin > cursor);
-    const gapEnd = blocker ? blocker.startMin : DAY_END_MIN;
+    const gapEnd = blocker ? blocker.startMin : TIMELINE_END_MIN;
     if (gapEnd > cursor) {
       const available = gapEnd - cursor;
       if (available >= SNAP_MIN) {

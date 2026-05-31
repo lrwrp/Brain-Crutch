@@ -53,15 +53,15 @@ body {
   left: 0;
   right: 0;
   z-index: 50;
-  height: 100px;
+  height: 85px;
   box-sizing: border-box;
 }
 
-/* Left column: clock + date pin to the start; the Focus button is
-   absolutely positioned so it centers within the timeline column's
-   horizontal extent (not the whole topbar). */
+/* Left column: clock + date pin to the start. Focus button used to live
+   here as an absolute-positioned 48 px hero (Tier 2 #11); #17 moved it
+   down into the timeline-head toolbar where it sits as a pill alongside
+   the date arrows. */
 .topbar-left {
-  position: relative;
   display: flex;
   align-items: flex-start;
   min-width: 0;
@@ -78,9 +78,14 @@ body {
   min-width: 0;
 }
 
+/* Clock + date sit side-by-side; date stacks two lines (weekday, then
+   month + day) to the right of the clock. align-items: center balances
+   the two-line date block against the 48 px clock; the clock still
+   anchors to the top of .topbar-left because it's the row's tallest
+   child (see test_layout_narrow.py — clock pinned at viewport y=18). */
 .now {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 14px;
 }
 
@@ -93,11 +98,22 @@ body {
 }
 
 .date {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
   color: var(--muted);
   font-size: 14px;
 }
+.date-weekday {
+  color: var(--text);
+  font-weight: 500;
+}
+.date-monthday {
+  color: var(--muted);
+}
 
-/* Single-line pill. Stars now live in #wins-stars (a sibling) — see below. */
+/* Single-line pill. Stars now live in #wins-stars (a sibling) — see below.
+   Clickable: opens the stats modal (Tier 2 #8). */
 .wins {
   font-size: 14px;
   color: var(--good);
@@ -108,13 +124,20 @@ body {
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
   white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
   /* Aligns the count's text baseline with the top row of stars when both
      are present. align-items: flex-start on the parent does the heavy
      lifting; this just keeps the pill height predictable. */
 }
+.wins:hover {
+  background: rgba(111, 207, 151, 0.16);
+  border-color: rgba(111, 207, 151, 0.45);
+}
 
 /* Stars sit in their own block to the LEFT of #wins. Grows downward; the
-   topbar's 100 px height accommodates the worst-case 3-row stack. */
+   topbar's 85 px height accommodates the worst-case 3-row stack (3 rows
+   × ~16 px + 12 px padding ≈ 60 px content). */
 .wins-stars {
   display: flex;
   flex-direction: column;
@@ -145,35 +168,93 @@ body {
 
 /* ----- Focus button + launcher + overlay ----- */
 
-/* Absolute-positioned inside .topbar-left so it centers within the
-   timeline column (not the whole topbar). Sized to match the clock's
-   visual weight — 48 px, weight 600 — so the two read as peer "tools"
-   in the topbar: time on the left, focus over the timeline. Fits in the
-   topbar's 64 px content area with snug vertical padding. */
+/* Pill that lives inside .timeline-actions next to the date controls.
+   Shape matches the #wins counter (rounded-pill, similar padding);
+   accent-tinted so it pops out of the muted .btn siblings (date arrows
+   / Today / + task) and reads as the only blue thing in that cluster.
+   Slash command `\f` still opens it. */
 .focus-btn {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  transform: translateX(-50%);
   background: rgba(122, 162, 255, 0.10);
   border: 1px solid rgba(122, 162, 255, 0.4);
   color: var(--text);
-  font-size: 48px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  line-height: 1;
-  padding: 4px 24px 6px;
-  border-radius: 16px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 5px 12px;
+  border-radius: 999px;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
   white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease, transform 80ms ease;
 }
 .focus-btn:hover {
   background: rgba(122, 162, 255, 0.18);
   border-color: var(--accent);
 }
 .focus-btn:active {
-  transform: translateX(-50%) scale(0.97);
+  transform: scale(0.97);
+}
+
+/* Stats modal (Tier 2 #8): tab strip + body. Reuses .modal scaffolding.
+   Body content is rebuilt per tab in stats.js so layout shape lives here. */
+.modal-content.stats-content {
+  width: 400px;
+  align-items: stretch;
+  text-align: center;
+  gap: 14px;
+}
+.stats-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.stats-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.stats-tab:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.stats-tab.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.stats-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+.stats-total {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--good);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.stats-breakdown {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-prio-high { color: var(--prio-high); }
+.stats-prio-medium { color: var(--prio-medium); }
+.stats-prio-low { color: var(--muted); }
+.stats-streak {
+  font-size: 13px;
+  color: var(--muted);
 }
 
 /* Launcher modal — uses the existing .modal scaffolding but with a tight,
@@ -317,6 +398,185 @@ body {
   gap: 12px;
 }
 
+/* ----- Focus queue overlay (one task at a time) ----- */
+
+.queue-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 20, 26, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100; /* same band as the focus overlay; above the topbar */
+}
+.queue-overlay.hidden {
+  display: none;
+}
+
+.queue-overlay-content {
+  position: relative;
+  width: min(560px, 92vw);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 24px;
+  padding: 32px;
+}
+
+.queue-state.hidden {
+  display: none;
+}
+
+.queue-exit {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 8px;
+}
+.queue-exit:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.queue-progress {
+  text-align: center;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.queue-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.queue-priority {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.queue-priority[data-priority="high"] {
+  color: var(--prio-high);
+  border-color: var(--prio-high);
+}
+.queue-priority[data-priority="medium"] {
+  color: var(--prio-medium);
+  border-color: var(--prio-medium);
+}
+.queue-priority[data-priority="low"] {
+  color: var(--muted);
+}
+
+.queue-due {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.queue-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.queue-schedule {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-notes {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.45;
+  max-height: 30vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  border-top: 1px dashed var(--border);
+  padding-top: 12px;
+}
+
+.queue-actions {
+  display: flex;
+  gap: 12px;
+}
+.queue-action {
+  flex: 1;
+  font-size: 16px;
+  padding: 14px 20px;
+  min-height: 48px; /* comfortable touch target on mobile */
+}
+
+.queue-hint {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.queue-empty-headline {
+  font-size: 48px;
+  font-weight: 700;
+  color: var(--good);
+  line-height: 1;
+  text-align: center;
+}
+.queue-empty-detail {
+  font-size: 16px;
+  color: var(--muted);
+  text-align: center;
+}
+/* :not(.hidden) so this ID rule doesn't out-specificity `.queue-state.hidden`
+   and leak the empty state into view while the running card is showing. */
+#queue-state-empty:not(.hidden) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+#queue-state-empty .queue-action {
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+
+/* ----- Top-level mobile view switcher ----- */
+
+/* Hidden on desktop: the two-column .layout shows both panels regardless of
+   body[data-mobile-view]. The switcher and single-column collapse turn on
+   inside the max-width media query at the bottom of this file. */
+.app-views {
+  display: none;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(320px, 380px);
@@ -336,11 +596,22 @@ body {
   min-height: 0;
 }
 
+/* Three cells: heading on the left, Focus button in the middle (centered
+   over the day timeline below), action cluster on the right. The 1fr
+   side columns keep the middle cell at the row's geometric center
+   regardless of how much horizontal space the day heading or action
+   cluster claim. */
 .timeline-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 10px;
+}
+.timeline-head > .timeline-actions {
+  justify-self: end;
+}
+.timeline-head > .focus-btn {
+  justify-self: center;
 }
 
 .timeline-head h2 {
@@ -505,6 +776,31 @@ body {
   user-select: none;
 }
 
+/* Tier 2 #19: tinted backdrop outside the 08:00-20:00 focus window. Two
+   pseudo-elements (top strip 00:00-08:00, bottom strip 20:00-24:00) sit
+   beneath the gridlines and beneath any block. The tint is rgba so the
+   gridlines underneath still read through; the calendar overlay and
+   task blocks both paint on top because they're real children of
+   .tracks (pseudo-elements paint as if they were the first children). */
+.tracks::before,
+.tracks::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  z-index: 0;
+}
+.tracks::before {
+  top: 0;
+  height: 480px; /* DAY_START_MIN — 08:00 × 60 min × 1px/min */
+}
+.tracks::after {
+  top: 1200px; /* DAY_END_MIN — 20:00 × 60 min × 1px/min */
+  height: 240px; /* 04:00 worth (20:00-24:00) */
+}
+
 .tracks {
   background-color: var(--panel-2);
   /* 15-min subtle line + hour stronger line, repeating */
@@ -589,6 +885,27 @@ body {
   outline-offset: 2px;
 }
 
+/* Sticky-projection block (Tier 2 #15): a recurring task's recurSchedule
+   projected onto this day. Dashed border signals "not yet solidified" —
+   dragging or resizing writes a real schedule and it becomes solid. A ↻
+   glyph in the top-right corner marks the cadence. */
+.task-block[data-sticky="true"] {
+  border-style: dashed;
+  background: var(--accent-soft);
+  opacity: 0.92;
+}
+.task-block[data-sticky="true"]::after {
+  content: "↻";
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .priority-stripe {
   position: absolute;
   left: 0;
@@ -627,6 +944,61 @@ body {
   line-height: 1.2;
   word-break: break-word;
   padding-right: 38px; /* keep clear of the action buttons */
+}
+
+/* Tier 2 #13: density tiers. The default layout above is "comfy" (≥45 min);
+   compact + tiny variants below collapse to a single inline row so blocks
+   stay readable at 30 / 15 min. data-density is set by applyBlockGeometry. */
+
+/* 25–44 min: single row. Title fills the width and ellipsises; the time
+   range hugs the right edge. Action cluster (still absolute top-right)
+   appears on hover; it briefly covers the time range while shown — the
+   time also lives in the native tooltip on the block, so that's fine. */
+.task-block[data-density="compact"] {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+.task-block[data-density="compact"] .task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.15;
+  padding-right: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-block[data-density="compact"] .task-meta {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* <25 min: title-only. Meta row + action buttons disappear; the schedule
+   range moves to the native tooltip. At this height there's no reliable
+   click target for done/notes anyway — the Tasks-tab row is the path. */
+.task-block[data-density="tiny"] {
+  flex-direction: row;
+  align-items: center;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.task-block[data-density="tiny"] .task-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.05;
+  font-weight: 500;
+  padding-right: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.task-block[data-density="tiny"] .task-meta,
+.task-block[data-density="tiny"] .task-actions {
+  display: none;
 }
 
 .task-block .task-title-input {
@@ -685,6 +1057,43 @@ body {
 .task-action:hover {
   background: rgba(255, 255, 255, 0.08);
   color: var(--text);
+}
+
+/* ----- Off-hours state (Tier 2 #19) ----- */
+
+/* A block whose start sits before 08:00 or whose end runs past 20:00.
+   Dashed border + slight opacity drop + 🌙 corner glyph so placement
+   outside the focus window reads as deliberate, not invisible. The
+   backdrop tint (rendered by .tracks::before/::after) is the
+   environmental cue; this is the per-block cue. */
+.task-block[data-off-hours="true"] {
+  border-style: dashed;
+  opacity: 0.9;
+}
+.task-block[data-off-hours="true"]:not([data-density="tiny"])::after {
+  content: "🌙";
+  position: absolute;
+  top: 2px;
+  right: 22px; /* clear of the .task-actions cluster on hover */
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ----- Past state (Tier 2 #6) ----- */
+
+/* Day-block past resting state: faded background so finished business
+   recedes visually but stays inspectable. Only applied on today (the
+   updateNowLine clears data-past when navigating to a different day,
+   since past/future is meaningless for non-today views). */
+.task-block[data-past="true"]:not(.done) {
+  opacity: 0.55;
+  filter: saturate(0.7);
+}
+/* Done + past compose: take the deeper done dim. */
+.task-block[data-past="true"].done {
+  /* No additional rule needed — .task-block.done below already wins. */
 }
 
 /* ----- Done state ----- */
@@ -971,7 +1380,10 @@ kbd {
 
 .ti-slot.ti-title {
   grid-column: title;
-  justify-content: flex-start;
+  /* Vertically center the title+subline block: with the action bar now
+     flooring rows at ~57px, a single-line title would otherwise float at
+     the top with dead space below it. */
+  justify-content: center;
   flex-direction: column;
   align-items: stretch;
   min-width: 0;
@@ -985,6 +1397,13 @@ kbd {
 }
 .ti-wake {
   color: var(--accent);
+}
+/* Rolled-over subline (Tier 2 #6): the task was scheduled on a past day
+   and didn't get done. Warn-yellow matches the due-soon palette so it
+   reads as "this slipped" without screaming overdue-red. */
+.ti-rolled-over {
+  color: var(--warn);
+  font-weight: 500;
 }
 
 /* Indicator slots — empty boxes that still hold their column. */
@@ -1039,8 +1458,19 @@ kbd {
 .ti-slot.ti-actions {
   grid-column: actions;
   height: 100%;
+  /* Floor the bar so each stacked button keeps a ≥28×28 hit box even on a
+     single-line task (which otherwise collapses it to ~18px tall). Cells
+     are border-box, so the 1px divider on the done cell eats into its
+     button — the 62px floor (two 30px cells + the bar's own 2px border)
+     leaves done at ~29px and delete at ~30px. The 32px column width
+     already satisfies the 28px minimum on the horizontal axis. */
+  min-height: 62px;
   display: flex;
   flex-direction: column;
+  /* Override .ti-slot's align-items:center — with flex-direction:column the
+     cross axis is horizontal, so center would shrink the buttons to glyph
+     width (~11px). stretch makes them fill the 32px column. */
+  align-items: stretch;
   border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
@@ -1051,6 +1481,11 @@ kbd {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Per-button floor: even when the 2:1 flex split would shrink delete
+     below this, the min-height wins so the destructive button never
+     becomes a thin sliver. 30px (not 28) leaves the done button ≥28
+     after its 1px border-box divider is subtracted. */
+  min-height: 30px;
 }
 .ti-slot.ti-actions .ti-done {
   flex: 2;
@@ -1173,6 +1608,8 @@ kbd {
   box-shadow: var(--shadow);
   padding: 6px;
   min-width: 180px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   animation: pop-in 120ms ease;
 }
 .snooze-option {
@@ -1188,6 +1625,95 @@ kbd {
 }
 .snooze-option:hover {
   background: var(--panel-2);
+}
+
+/* Recur popover (Tier 2 #15) — sibling of the snooze menu, anchored to the
+   ↻ button. Carries a start-time input, weekday chips, cadence presets, and
+   a divider before the "no set time" / "stop repeating" footer options. */
+.recur-menu {
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 8px;
+  min-width: 220px;
+  gap: 2px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  animation: pop-in 120ms ease;
+}
+.recur-time-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.recur-time-input {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 6px;
+}
+.recur-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 6px 8px;
+}
+.recur-chip {
+  flex: 1 1 auto;
+  min-width: 36px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 0;
+  cursor: pointer;
+  transition: all 100ms ease;
+}
+.recur-chip[data-on="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.recur-option {
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.recur-option:hover {
+  background: var(--panel-2);
+}
+.recur-option.danger:hover {
+  background: rgba(235, 87, 87, 0.14);
+  color: var(--danger);
+}
+.recur-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+/* Recur cadence sub-line under a task title. Accent-tinted to tie it to
+   the ↻ glyph; tabular figures keep the time aligned. */
+.ti-recur-sub {
+  color: var(--accent);
+  opacity: 0.85;
 }
 
 .pill {
@@ -1690,4 +2216,68 @@ kbd {
 .kbd-hint kbd {
   font-size: 9px;
   padding: 0 4px;
+}
+
+/* ----- Mobile: single-column shell + top-level view switcher ----- */
+
+/* Below 720px the two-column grid can't fit (its min is ~800px), so we
+   collapse to one column and show only the panel the user picked via the
+   .app-views switcher. The topbar keeps its 18px/24px padding so the clock
+   stays anchored top-left (see test_layout_narrow.py); only the clock font
+   shrinks to reclaim width. */
+@media (max-width: 720px) {
+  .app-views {
+    display: flex;
+    gap: 6px;
+    padding: 8px 16px 0;
+  }
+  .app-view {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 14px;
+    padding: 10px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    min-height: 40px;
+  }
+  .app-view.active {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--text);
+  }
+
+  .clock {
+    font-size: 34px;
+  }
+
+  /* One column; let it size to the viewport so there's no horizontal scroll
+     and the visible panel keeps its own internal scroll. 100px topbar pad +
+     ~56px switcher row. */
+  .layout {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    height: calc(100vh - 156px);
+    gap: 0;
+  }
+
+  /* Show exactly one panel based on the chosen view. */
+  body[data-mobile-view="timeline"] .side {
+    display: none;
+  }
+  body[data-mobile-view="triage"] .timeline-panel {
+    display: none;
+  }
+
+  /* The timeline toolbar gets tight on a phone — let it wrap. */
+  .timeline-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .timeline-actions {
+    flex-wrap: wrap;
+  }
 }

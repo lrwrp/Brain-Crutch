@@ -21,11 +21,14 @@ import {
   overlaps,
   setSelectedTask,
   tasksScheduledOn,
+  projectedScheduleFor,
 } from "./state.js";
 import { patchTaskRecord } from "./api.js";
 import {
   TIMELINE_START_MIN,
   TIMELINE_END_MIN,
+  DAY_START_MIN,
+  DAY_END_MIN,
   PX_PER_MIN,
   SNAP_MIN,
   MIN_DURATION_MIN,
@@ -60,10 +63,12 @@ function renderHourLabels() {
 
 export function updateNowLine() {
   const isToday = currentDate === todayKey();
+  // Past + current are today-only concepts; clear them when off today.
   if (!isToday) {
     nowLineEl.classList.add("off");
-    for (const block of tracksEl.querySelectorAll(".task-block.current")) {
+    for (const block of tracksEl.querySelectorAll(".task-block")) {
       block.classList.remove("current");
+      delete block.dataset.past;
     }
     return;
   }
@@ -77,14 +82,31 @@ export function updateNowLine() {
   const top = (now - TIMELINE_START_MIN) * PX_PER_MIN;
   nowLineEl.style.top = `${top}px`;
   nowPillEl.textContent = fmtMin(now);
+  // Block temporal state: current = now-line inside block; past = block end
+  // is in the past. Both update on every tick so a block being completed
+  // late doesn't visually freeze at "current" once now-line moves past it.
   for (const block of tracksEl.querySelectorAll(".task-block")) {
     const start = Number(block.dataset.start);
     const end = start + Number(block.dataset.duration);
     block.classList.toggle("current", now >= start && now < end);
+    if (end <= now) {
+      block.dataset.past = "true";
+    } else {
+      delete block.dataset.past;
+    }
   }
 }
 
 // ----- Block rendering -----
+
+// Tier 2 #13: pick a density tier from the block's height so the inner
+// layout can degrade gracefully when the duration is short. CSS keys off
+// `data-density`. Thresholds at 45 and 25 min match the spec.
+function densityFor(durationMin) {
+  if (durationMin >= 45) return "comfy";
+  if (durationMin >= 25) return "compact";
+  return "tiny";
+}
 
 function applyBlockGeometry(el, startMin, durationMin) {
   // Top is measured from the canvas origin (TIMELINE_START_MIN) so that
@@ -93,10 +115,29 @@ function applyBlockGeometry(el, startMin, durationMin) {
   el.style.height = `${durationMin * PX_PER_MIN}px`;
   el.dataset.start = String(startMin);
   el.dataset.duration = String(durationMin);
+  el.dataset.density = densityFor(durationMin);
+  // Off-hours: the block sits partly or wholly outside the 08:00-20:00
+  // focus window (Tier 2 #19). CSS uses data-off-hours for dashed border
+  // + 🌙 corner glyph. Behavioral schedule is unchanged — placement is
+  // still allowed anywhere, this is purely visual pressure.
+  const offHours = startMin < DAY_START_MIN || startMin + durationMin > DAY_END_MIN;
+  if (offHours) {
+    el.dataset.offHours = "true";
+  } else {
+    delete el.dataset.offHours;
+  }
+  const timeText = `${fmtMin(startMin)}–${fmtMin(startMin + durationMin)} · ${durationMin}m`;
   const timeEl = el.querySelector(".task-time");
   if (timeEl) {
-    timeEl.textContent = `${fmtMin(startMin)}–${fmtMin(startMin + durationMin)} · ${durationMin}m`;
+    timeEl.textContent = timeText;
   }
+  // Native tooltip carries the full schedule range, essential at tiny
+  // density where the meta row is hidden. Composed from the .task-title
+  // text so a rename via beginTitleEdit picks up next time we land here.
+  const titleEl = el.querySelector(".task-title");
+  const titleText = titleEl ? titleEl.textContent : "";
+  const base = titleText ? `${titleText}\n${timeText}` : timeText;
+  el.title = offHours ? `${base}\n(outside focus hours)` : base;
 }
 
 function renderTasks() {
@@ -111,6 +152,11 @@ function renderTaskBlock(task) {
   if (task.done) el.classList.add("done");
   el.dataset.id = task.id;
   el.dataset.priority = task.priority;
+  // Sticky = a recurSchedule projection rather than a real per-day schedule
+  // (Tier 2 #15). CSS gives it a dashed border + ↻ corner so the user can
+  // tell a projected block from a manually-placed one. Dragging or resizing
+  // it solidifies it into a real schedule for the day (see beginDrag onUp).
+  if (task.sticky) el.dataset.sticky = "true";
   if (task.id === selectedTaskId) el.classList.add("selected");
 
   const stripe = makePriorityStripe(task.id, task.priority);
@@ -209,7 +255,25 @@ export function addTask() {
 }
 
 async function unscheduleTask(id) {
-  const updated = await patchTaskRecord(id, { schedule: null });
+  const rec = getTask(id);
+  if (!rec) return;
+  let patch;
+  if (rec.schedule && rec.schedule.date === currentDate) {
+    // Real per-day schedule → just clear it.
+    patch = { schedule: null };
+  } else if (projectedScheduleFor(rec, currentDate)) {
+    // Sticky projection → skip this one day by recording an exception
+    // (ADHD-friendly "skip today, see it again tomorrow", not "you have to
+    // recreate it"). The recurSchedule itself is left intact.
+    const ex = Array.isArray(rec.recurExceptions)
+      ? rec.recurExceptions.slice()
+      : [];
+    if (!ex.includes(currentDate)) ex.push(currentDate);
+    patch = { recurExceptions: ex };
+  } else {
+    patch = { schedule: null };
+  }
+  const updated = await patchTaskRecord(id, patch);
   if (!updated) {
     showToast("Save failed");
     return;
@@ -294,11 +358,19 @@ function beginDrag(e, el, id) {
     const snapped = target !== proposedStart;
     applyBlockGeometry(el, target, duration);
     const rec = getTask(id);
-    if (!rec || !rec.schedule) {
+    if (!rec) {
       applyBlockGeometry(el, originalStart, duration);
       return;
     }
-    const newSchedule = { ...rec.schedule, startMin: target };
+    // Write a concrete schedule for the day being viewed. For a sticky
+    // (projected) block this is the moment it becomes a real per-day
+    // schedule — stickiness breaks for this one day, the recurSchedule still
+    // projects onto every other matching day.
+    const newSchedule = {
+      date: currentDate,
+      startMin: target,
+      durationMin: duration,
+    };
     patchTaskRecord(id, { schedule: newSchedule }).then((updated) => {
       if (!updated) {
         applyBlockGeometry(el, originalStart, duration);
@@ -358,11 +430,17 @@ function beginResize(e, el, id) {
       return;
     }
     const rec = getTask(id);
-    if (!rec || !rec.schedule) {
+    if (!rec) {
       applyBlockGeometry(el, startMin, originalDuration);
       return;
     }
-    const newSchedule = { ...rec.schedule, durationMin: proposedDuration };
+    // Same solidify-on-edit rule as drag: persist a concrete schedule for the
+    // viewed day (turns a sticky projection into a real block for that day).
+    const newSchedule = {
+      date: currentDate,
+      startMin,
+      durationMin: proposedDuration,
+    };
     patchTaskRecord(id, { schedule: newSchedule }).then((updated) => {
       if (!updated) {
         applyBlockGeometry(el, startMin, originalDuration);

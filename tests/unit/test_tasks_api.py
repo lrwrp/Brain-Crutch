@@ -838,3 +838,128 @@ class TestRecurringDoneSemantics:
         ).json()
         assert patched["done"] is False
         assert patched["completedAt"] is None
+
+
+# --- Tier 2 #15: sticky-time recurrence (recurSchedule / recurExceptions) ---
+
+
+@pytest.mark.unit
+class TestRecurSchedule:
+    def test_post_default_recur_fields(self, client):
+        data = client.post("/api/tasks", json={"title": "x"}).json()
+        assert data["recurSchedule"] is None
+        assert data["recurExceptions"] == []
+
+    def test_post_with_recur_schedule_round_trips(self, client):
+        body = {
+            "title": "standup",
+            "recurSchedule": {
+                "startMin": 540,
+                "durationMin": 15,
+                "days": ["mon", "tue", "wed", "thu", "fri"],
+            },
+        }
+        data = client.post("/api/tasks", json=body).json()
+        assert data["recurSchedule"] == body["recurSchedule"]
+
+    def test_post_recur_schedule_every_day_uses_null_days(self, client):
+        body = {
+            "title": "meds",
+            "recurSchedule": {"startMin": 480, "durationMin": 5, "days": None},
+        }
+        data = client.post("/api/tasks", json=body).json()
+        assert data["recurSchedule"]["days"] is None
+
+    def test_invalid_weekday_token_rejected(self, client):
+        res = client.post(
+            "/api/tasks",
+            json={
+                "title": "x",
+                "recurSchedule": {"startMin": 0, "durationMin": 30, "days": ["monday"]},
+            },
+        )
+        assert res.status_code == 422
+
+    def test_recur_schedule_out_of_range_start_rejected(self, client):
+        res = client.post(
+            "/api/tasks",
+            json={
+                "title": "x",
+                "recurSchedule": {"startMin": 99999, "durationMin": 30, "days": None},
+            },
+        )
+        assert res.status_code == 422
+
+    def test_patch_set_recur_schedule(self, client, make_task):
+        t = make_task()
+        spec = {"startMin": 600, "durationMin": 45, "days": ["sat", "sun"]}
+        patched = client.patch(
+            f"/api/tasks/{t['id']}", json={"recurSchedule": spec}
+        ).json()
+        assert patched["recurSchedule"] == spec
+
+    def test_patch_clear_recur_schedule_via_null(self, client, make_task):
+        t = make_task(
+            recurSchedule={"startMin": 540, "durationMin": 30, "days": None}
+        )
+        assert t["recurSchedule"] is not None
+        patched = client.patch(
+            f"/api/tasks/{t['id']}", json={"recurSchedule": None}
+        ).json()
+        assert patched["recurSchedule"] is None
+
+    def test_recur_exceptions_replace_all(self, client, make_task):
+        t = make_task()
+        patched = client.patch(
+            f"/api/tasks/{t['id']}",
+            json={"recurExceptions": ["2026-06-01", "2026-06-08"]},
+        ).json()
+        assert patched["recurExceptions"] == ["2026-06-01", "2026-06-08"]
+        patched2 = client.patch(
+            f"/api/tasks/{t['id']}", json={"recurExceptions": ["2026-06-01"]}
+        ).json()
+        assert patched2["recurExceptions"] == ["2026-06-01"]
+
+    def test_recur_exceptions_bad_date_rejected(self, client, make_task):
+        t = make_task()
+        res = client.patch(
+            f"/api/tasks/{t['id']}", json={"recurExceptions": ["June 1"]}
+        )
+        assert res.status_code == 422
+
+    def test_patch_without_recur_fields_leaves_them_alone(self, client, make_task):
+        t = make_task(
+            recurSchedule={"startMin": 540, "durationMin": 30, "days": ["mon"]},
+        )
+        patched = client.patch(
+            f"/api/tasks/{t['id']}", json={"title": "renamed"}
+        ).json()
+        assert patched["recurSchedule"] == {
+            "startMin": 540,
+            "durationMin": 30,
+            "days": ["mon"],
+        }
+
+    def test_legacy_v2_task_reads_with_normalized_recur_fields(
+        self, client, tmp_data_dir
+    ):
+        """A pre-#15 (v2) task on disk gets recurSchedule/recurExceptions
+        backfilled on read without an explicit migration write."""
+        import json
+        import server
+
+        legacy = {
+            "id": "old",
+            "title": "legacy v2",
+            "priority": "medium",
+            "schedule": None,
+            "done": False,
+            "createdAt": 1.0,
+            "updatedAt": 1.0,
+        }
+        (tmp_data_dir / "tasks.json").write_text(
+            json.dumps({"version": 2, "items": [legacy]})
+        )
+        items = client.get("/api/tasks").json()["items"]
+        assert items[0]["recurSchedule"] is None
+        assert items[0]["recurExceptions"] == []

@@ -100,6 +100,11 @@ def _normalize_task(item: dict) -> dict:
         item["recurring"] = False
     if "snoozedUntil" not in item:
         item["snoozedUntil"] = None
+    # Tier 2 #15 sticky-time recurrence.
+    if "recurSchedule" not in item:
+        item["recurSchedule"] = None
+    if "recurExceptions" not in item:
+        item["recurExceptions"] = []
     # Silently strip the legacy active/not_today status field. Pre-v2 files
     # may still have it on disk; ``_upgrade_v1_to_v2`` clears it on the next
     # versioned read, but in-flight dicts (e.g., during migrate_days) might
@@ -199,6 +204,44 @@ class TaskSchedule(BaseModel):
 
 DEFAULT_DURATION_MIN = 30
 
+# Tier 2 #15: lowercase 3-letter weekday tokens for recurSchedule.days.
+WEEKDAY_TOKENS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+class RecurSchedule(BaseModel):
+    """Sticky-time recurrence spec (Tier 2 #15).
+
+    A task carrying a ``recurSchedule`` projects onto each matching day at the
+    same ``startMin`` / ``durationMin`` without a per-day schedule write. The
+    projection is display-only on the client until the user drags/edits it
+    (which writes a real ``schedule`` for that day). ``days`` is a list of
+    weekday tokens, or ``None`` for every day.
+    """
+
+    startMin: int = Field(ge=0, le=24 * 60)
+    durationMin: int = Field(ge=1, le=24 * 60)
+    days: Optional[List[str]] = None
+
+    @field_validator("days")
+    @classmethod
+    def _validate_days(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        for d in v:
+            if d not in WEEKDAY_TOKENS:
+                raise ValueError(f"recurSchedule.days entries must be one of {WEEKDAY_TOKENS}")
+        return v
+
+
+def _validate_date_list(v: Optional[List[str]]) -> List[str]:
+    """Shared validator body for recurExceptions — every entry YYYY-MM-DD."""
+    if not v:
+        return []
+    for d in v:
+        if not DATE_RE.match(d):
+            raise ValueError("recurExceptions entries must be YYYY-MM-DD")
+    return list(v)
+
 
 class TaskRecord(BaseModel):
     id: str
@@ -213,6 +256,9 @@ class TaskRecord(BaseModel):
     dueDate: Optional[str] = None
     recurring: bool = False
     snoozedUntil: Optional[float] = None
+    # Tier 2 #15 additions ---
+    recurSchedule: Optional[RecurSchedule] = None
+    recurExceptions: List[str] = Field(default_factory=list)
     # ---
     createdAt: float
     updatedAt: float
@@ -228,6 +274,11 @@ class TaskRecord(BaseModel):
             raise ValueError("dueDate must be YYYY-MM-DD")
         return v
 
+    @field_validator("recurExceptions")
+    @classmethod
+    def _validate_exceptions(cls, v: Optional[List[str]]) -> List[str]:
+        return _validate_date_list(v)
+
 
 class TaskCreateIn(BaseModel):
     title: str
@@ -240,6 +291,8 @@ class TaskCreateIn(BaseModel):
     dueDate: Optional[str] = None
     recurring: bool = False
     snoozedUntil: Optional[float] = None
+    recurSchedule: Optional[RecurSchedule] = None
+    recurExceptions: List[str] = Field(default_factory=list)
 
     @field_validator("dueDate")
     @classmethod
@@ -249,6 +302,11 @@ class TaskCreateIn(BaseModel):
         if not DATE_RE.match(v):
             raise ValueError("dueDate must be YYYY-MM-DD")
         return v
+
+    @field_validator("recurExceptions")
+    @classmethod
+    def _validate_exceptions(cls, v: Optional[List[str]]) -> List[str]:
+        return _validate_date_list(v)
 
 
 class TaskPatchIn(BaseModel):
@@ -262,6 +320,8 @@ class TaskPatchIn(BaseModel):
     dueDate: Optional[str] = None
     recurring: Optional[bool] = None
     snoozedUntil: Optional[float] = None
+    recurSchedule: Optional[RecurSchedule] = None
+    recurExceptions: Optional[List[str]] = None
 
     @field_validator("dueDate")
     @classmethod
@@ -271,6 +331,13 @@ class TaskPatchIn(BaseModel):
         if not DATE_RE.match(v):
             raise ValueError("dueDate must be YYYY-MM-DD")
         return v
+
+    @field_validator("recurExceptions")
+    @classmethod
+    def _validate_exceptions(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        return _validate_date_list(v)
 
 
 def validate_priority(priority: str) -> None:
@@ -314,6 +381,8 @@ def create_task(payload: TaskCreateIn) -> TaskRecord:
         dueDate=payload.dueDate,
         recurring=payload.recurring,
         snoozedUntil=payload.snoozedUntil,
+        recurSchedule=payload.recurSchedule,
+        recurExceptions=list(payload.recurExceptions),
         createdAt=now,
         updatedAt=now,
         completedAt=now if payload.done else None,
@@ -365,6 +434,15 @@ def patch_task(task_id: str, payload: TaskPatchIn) -> TaskRecord:
                 it["snoozedUntil"] = (
                     None if payload.snoozedUntil is None else float(payload.snoozedUntil)
                 )
+            if "recurSchedule" in fields:
+                it["recurSchedule"] = (
+                    payload.recurSchedule.model_dump()
+                    if payload.recurSchedule
+                    else None
+                )
+            if "recurExceptions" in fields:
+                # Replace-all semantics, mirroring tags. Explicit null clears.
+                it["recurExceptions"] = list(payload.recurExceptions or [])
             now = time.time()
             if "done" in fields:
                 new_done = bool(payload.done)

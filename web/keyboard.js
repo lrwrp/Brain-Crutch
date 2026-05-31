@@ -23,6 +23,12 @@ import {
   openNotesReader,
 } from "./notes-read.js";
 import { cancelFocus, isFocusActive, openLauncher } from "./focus.js";
+import {
+  isQueueActive,
+  openQueue,
+  closeQueue,
+  handleQueueKey,
+} from "./queue.js";
 import { setDate } from "./main.js";
 
 let slashActive = false;
@@ -101,6 +107,11 @@ async function bumpSelectedPriority(delta) {
 export function initKeyboard() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      if (isQueueActive()) {
+        e.preventDefault();
+        closeQueue();
+        return;
+      }
       if (isFocusActive()) {
         e.preventDefault();
         cancelFocus();
@@ -140,6 +151,13 @@ export function initKeyboard() {
       }
     }
 
+    // The focus queue overlay owns its own keys (c complete / s skip / Enter)
+    // and swallows everything else while it's up. Esc is handled above.
+    if (isQueueActive()) {
+      handleQueueKey(e);
+      return;
+    }
+
     // While a modal is open, let it own all keys. The notes reader is special
     // — its only chrome is the [Edit] button, so we want `e` here to behave
     // as the keyboard equivalent of clicking that button. The focus overlay
@@ -177,6 +195,11 @@ export function initKeyboard() {
       if (e.key === "f" || e.key === "F") {
         e.preventDefault();
         openLauncher();
+        return;
+      }
+      if (e.key === "q" || e.key === "Q") {
+        e.preventDefault();
+        openQueue();
         return;
       }
       // Unrecognized — drop out and let the key behave normally.
