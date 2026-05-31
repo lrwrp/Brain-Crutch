@@ -1,6 +1,6 @@
 # Architecture
 
-*Last updated: 2026-05-29 — mobile tabbed shell (#20) + focus queue (#21) shipped, plus recur/snooze popover clipping fix. See also [CONTEXT.md](CONTEXT.md), [TODO.md](TODO.md), [README.md](README.md).*
+*Last updated: 2026-05-29 — mobile tabbed shell (#20) + focus queue (#21) shipped, plus recur/snooze popover clipping fix. See also [README.md](README.md).*
 
 ## One-paragraph summary
 
