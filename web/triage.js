@@ -63,6 +63,7 @@ import {
 } from "./time.js";
 import { showToast, showUndoToast } from "./toast.js";
 import { scheduleTaskOnToday } from "./timeline.js";
+import { recordActivity } from "./momentum.js";
 
 // ----- Tabs -----
 
@@ -1064,6 +1065,7 @@ export function initInboxForm() {
     const ok = await submitCapture(text);
     if (ok) {
       await loadInbox();
+      recordActivity();
       // Blur on success so a follow-up `\n` / `\t` slash-command keystroke
       // routes to the document rather than this still-focused input.
       inboxInputEl.blur();

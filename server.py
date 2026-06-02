@@ -6,6 +6,7 @@ Then open http://localhost:1440
 
 from __future__ import annotations
 
+import datetime as _dt
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 # at call sites) so tests can monkeypatch ``server.DATA`` etc. and have route
 # handlers pick up the override via this module's globals.
 from storage import (
+    ACTIVITY_FILE,
     CALENDAR_DIR,
     CURRENT_VERSION,
     DATA,
@@ -55,6 +57,10 @@ def ensure_data() -> None:
         save_versioned(INBOX_FILE, {"items": []})
     if not TASKS_FILE.exists():
         save_versioned(TASKS_FILE, {"items": []})
+    # Activity log powering the momentum gauge — own simple shape, not part of
+    # the versioned task/inbox schema chain.
+    if not ACTIVITY_FILE.exists():
+        write_json(ACTIVITY_FILE, {"version": 1, "days": {}})
     # Upgrade any pre-A3 files on startup so subsequent reads see the
     # current schema shape.
     load_versioned(INBOX_FILE)
@@ -187,6 +193,40 @@ def restore_inbox_item(item_id: str) -> InboxItem:
             save_versioned(INBOX_FILE, data)
             return InboxItem(**it)
     raise HTTPException(status_code=404, detail="inbox item not found")
+
+
+# --- Activity log (momentum gauge) -----------------------------------------
+
+
+def _read_activity() -> dict:
+    """Activity log as {"version": 1, "days": {date: count}}, tolerant of a
+    missing/empty file."""
+    try:
+        data = read_json(ACTIVITY_FILE)
+    except FileNotFoundError:
+        data = {}
+    days = data.get("days")
+    if not isinstance(days, dict):
+        days = {}
+    return {"version": 1, "days": days}
+
+
+@app.get("/api/activity")
+def get_activity() -> dict:
+    return {"days": _read_activity()["days"]}
+
+
+@app.post("/api/activity")
+def post_activity() -> dict:
+    """Record one unit of activity for the server's local 'today'. Any app
+    open or meaningful action calls this; the per-day count drives the
+    momentum gauge + mosaic."""
+    data = _read_activity()
+    today = _dt.date.today().isoformat()
+    days = data["days"]
+    days[today] = int(days.get(today, 0)) + 1
+    write_json(ACTIVITY_FILE, data)
+    return {"date": today, "count": days[today]}
 
 
 class TaskSchedule(BaseModel):

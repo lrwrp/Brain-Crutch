@@ -72,3 +72,15 @@ export async function submitCapture(text) {
   });
   return res.ok;
 }
+
+export async function fetchActivity() {
+  const res = await fetch("/api/activity");
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function pingActivity() {
+  const res = await fetch("/api/activity", { method: "POST" });
+  if (!res.ok) return null;
+  return res.json(); // { date, count }
+}

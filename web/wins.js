@@ -1,27 +1,21 @@
-// Header wins counter. Two sibling elements in the topbar's right column:
-//   • #wins-stars — a pile of ⭐ stars, one per **high-priority** completion.
-//     Medium and low completions earn no star; the priority signal stays
-//     honest. Grows downward as the day fills up.
-//   • #wins — the total `✓ N today` count, single-line pill. Every completed
-//     task feeds it regardless of priority. Uses the server-stamped
-//     `completedAt` (Phase 4.7 A2) so wall-clock yesterday's completions
-//     don't carry over.
+// Header wins counter.
+//   • #wins — the total `✓ N today` count, single-line pill (paired with the
+//     Focus button in .topbar-actions). Every completed task feeds it
+//     regardless of priority. Uses the server-stamped `completedAt`
+//     (Phase 4.7 A2) so wall-clock yesterday's completions don't carry over.
+//   • #wins-stars — a single right-aligned row of ⭐, one per **high-priority**
+//     completion, sitting beneath the action pills. Medium and low earn no
+//     star; the priority signal stays honest.
 //
-// Layout note: the two elements live side-by-side in `.topbar-right`. The
-// count baselines with the **top** row of stars, so its vertical position
-// is stable while stars grow underneath.
-//
-// Star layout: 5 per row, up to 3 visible rows (15 stars). Past 15, the
-// final row gets a `+N` overflow indicator.
+// Star layout: a single row, up to MAX_VISIBLE_STARS; past that a `+N`
+// overflow tag closes the row.
 
 import { winsEl, winsStarsEl } from "./dom.js";
 import { tasks, priorityOf } from "./state.js";
 import { bus, EVENTS } from "./events.js";
 
 const STAR = "⭐";
-const STARS_PER_ROW = 5;
-const MAX_VISIBLE_ROWS = 3;
-const MAX_VISIBLE_STARS = STARS_PER_ROW * MAX_VISIBLE_ROWS; // 15
+const MAX_VISIBLE_STARS = 10;
 
 function startOfTodayEpochSeconds() {
   const d = new Date();
@@ -44,35 +38,22 @@ function countWinsToday() {
 
 function renderStars(highCount) {
   winsStarsEl.replaceChildren();
-  // 0 highs → element stays empty. Right column collapses to just the
-  // count pill on the typical empty-day case.
+  // 0 highs → element stays empty and collapses via the :empty CSS rule.
   if (highCount <= 0) return;
 
   const visible = Math.min(highCount, MAX_VISIBLE_STARS);
-  const fullRows = Math.floor(visible / STARS_PER_ROW);
-  const lastRowStars = visible % STARS_PER_ROW;
   const overflow = highCount - MAX_VISIBLE_STARS;
 
-  for (let i = 0; i < fullRows; i++) {
-    const row = document.createElement("div");
-    row.className = "wins-row";
-    row.textContent = STAR.repeat(STARS_PER_ROW);
-    // Hang the overflow indicator on the bottom-most full row when we hit
-    // the cap. A "+N" tag sits on the same line as the 15th star.
-    if (i === MAX_VISIBLE_ROWS - 1 && overflow > 0) {
-      const tag = document.createElement("span");
-      tag.className = "wins-overflow";
-      tag.textContent = `+${overflow}`;
-      row.appendChild(tag);
-    }
-    winsStarsEl.appendChild(row);
+  const row = document.createElement("div");
+  row.className = "wins-row";
+  row.textContent = STAR.repeat(visible);
+  if (overflow > 0) {
+    const tag = document.createElement("span");
+    tag.className = "wins-overflow";
+    tag.textContent = `+${overflow}`;
+    row.appendChild(tag);
   }
-  if (lastRowStars > 0) {
-    const row = document.createElement("div");
-    row.className = "wins-row";
-    row.textContent = STAR.repeat(lastRowStars);
-    winsStarsEl.appendChild(row);
-  }
+  winsStarsEl.appendChild(row);
 }
 
 function render() {

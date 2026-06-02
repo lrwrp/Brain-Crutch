@@ -15,11 +15,15 @@
             <span id="date-weekday" class="date-weekday">—</span>
             <span id="date-monthday" class="date-monthday">—</span>
           </div>
+          <button id="momentum-ember" class="momentum-ember" type="button" title="Momentum" aria-label="Momentum">🔥</button>
         </div>
       </div>
       <div class="topbar-right">
+        <div class="topbar-actions">
+          <button id="focus-btn" class="focus-btn" type="button" title="Start a focus timer (\f)">Focus</button>
+          <div class="wins" id="wins" title="completed today">✓ 0 today</div>
+        </div>
         <div id="wins-stars" class="wins-stars" aria-label="High-priority completions today"></div>
-        <div class="wins" id="wins" title="completed today">✓ 0 today</div>
       </div>
     </header>
 
@@ -32,7 +36,6 @@
       <section class="timeline-panel">
         <header class="timeline-head">
           <h2 id="day-heading">Today</h2>
-          <button id="focus-btn" class="focus-btn" type="button" title="Start a focus timer (\f)">Focus</button>
           <div class="timeline-actions">
             <button id="queue-btn" class="btn" type="button" title="Work one task at a time (\q)">Queue</button>
             <button id="date-prev" class="btn date-arrow" type="button" aria-label="Previous day" title="Previous day">‹</button>

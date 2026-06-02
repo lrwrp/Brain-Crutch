@@ -35,6 +35,10 @@ DATA = Path(_env_data) if _env_data else ROOT / "data"
 DAYS_DIR = DATA / "days"
 INBOX_FILE = DATA / "inbox.json"
 TASKS_FILE = DATA / "tasks.json"
+# Per-day app-activity counts powering the momentum gauge. Self-contained
+# shape ({"version": 1, "days": {date: count}}) — intentionally NOT run through
+# load/save_versioned, which are keyed to the task/inbox schema chain.
+ACTIVITY_FILE = DATA / "activity.json"
 CALENDAR_DIR = DATA / "UserCalendar"
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")

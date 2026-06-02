@@ -11,14 +11,20 @@
 //   year     now − 365 d
 //   all      everything
 //
-// Streak = consecutive days with ≥1 completion, walking backward from
-// today. Per spec: if today has no completion yet, the streak still
-// counts ending at the most recent completed day. Always shown on every
-// tab — it's a property of the full history, not the window.
+// Below the totals it shows the momentum gauge + activity mosaic (see
+// momentum.js) — a forgiving replacement for the old streak counter, which
+// reset to zero on any missed day. Momentum decays gently and never "loses".
 
-import { statsModal, statsTabsEl, statsBodyEl, winsEl } from "./dom.js";
+import {
+  statsModal,
+  statsTabsEl,
+  statsBodyEl,
+  winsEl,
+  momentumEmberEl,
+} from "./dom.js";
 import { tasks, priorityOf } from "./state.js";
 import { bus, EVENTS } from "./events.js";
+import { buildMomentumSection, onActivityChange } from "./momentum.js";
 
 const WINDOWS = [
   { key: "today", label: "Today" },
@@ -48,14 +54,6 @@ function cutoffFor(window) {
   return 0; // all-time
 }
 
-function localDateKey(epochSeconds) {
-  const d = new Date(epochSeconds * 1000);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 // ----- Computations -----
 
 function statsForWindow(window) {
@@ -76,40 +74,6 @@ function statsForWindow(window) {
   return { total, high, medium, low };
 }
 
-// Walks backward from today (or yesterday, if today's empty) and counts
-// consecutive completed days. Each `completedAt` only marks the *last*
-// completion of a given task — recurring tasks lose pre-current-day
-// history. That's acceptable for v1 streaks; a longer-history scheme is
-// noted as a Tier-3 follow-on in TODO.md.
-function computeStreak() {
-  const completedDays = new Set();
-  for (const t of tasks) {
-    if (!t.done) continue;
-    if (typeof t.completedAt !== "number") continue;
-    completedDays.add(localDateKey(t.completedAt));
-  }
-  if (completedDays.size === 0) return 0;
-
-  const cursor = new Date();
-  cursor.setHours(0, 0, 0, 0);
-  if (!completedDays.has(keyOfDate(cursor))) {
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  let count = 0;
-  while (completedDays.has(keyOfDate(cursor))) {
-    count += 1;
-    cursor.setDate(cursor.getDate() - 1);
-  }
-  return count;
-}
-
-function keyOfDate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
 // ----- Rendering -----
 
 function render() {
@@ -121,7 +85,6 @@ function render() {
   }
 
   const { total, high, medium, low } = statsForWindow(activeWindow);
-  const streak = computeStreak();
 
   const totalLine = document.createElement("div");
   totalLine.className = "stats-total";
@@ -135,14 +98,12 @@ function render() {
     `<span class="stats-prio stats-prio-medium">● ${medium}</span>` +
     `<span class="stats-prio stats-prio-low">○ ${low}</span>`;
 
-  const streakLine = document.createElement("div");
-  streakLine.className = "stats-streak";
-  streakLine.textContent =
-    streak === 0
-      ? "🔥 no current streak"
-      : `🔥 ${streak}-day streak`;
+  // Momentum gauge + mosaic replaces the old streak line. It's a property of
+  // the full activity history, not the selected window, so it's the same on
+  // every tab.
+  const momentum = buildMomentumSection();
 
-  statsBodyEl.replaceChildren(totalLine, breakdown, streakLine);
+  statsBodyEl.replaceChildren(totalLine, breakdown, momentum);
 }
 
 // ----- Open / close -----
@@ -167,9 +128,16 @@ function closeStatsModal() {
 // ----- Wiring -----
 
 export function initStatsModal() {
-  // Click #wins to open. .wins also gets a cursor: pointer rule in
-  // styles.css so the affordance reads visually.
+  // Click #wins (or the topbar momentum ember) to open. Both get a
+  // cursor: pointer rule in styles.css so the affordance reads visually.
   winsEl.addEventListener("click", openStatsModal);
+  if (momentumEmberEl) momentumEmberEl.addEventListener("click", openStatsModal);
+
+  // Re-render the gauge/mosaic live when activity changes while the modal
+  // is open (a completion just bumped today's count).
+  onActivityChange(() => {
+    if (isOpen) render();
+  });
 
   // Tab clicks.
   statsTabsEl.addEventListener("click", (e) => {

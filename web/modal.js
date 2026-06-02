@@ -15,6 +15,7 @@ import {
 } from "./time.js";
 import { showToast } from "./toast.js";
 import { loadInbox } from "./triage.js";
+import { recordActivity } from "./momentum.js";
 
 let modalMode = null;
 let modalContext = null;
@@ -67,6 +68,7 @@ async function commitCaptureModal() {
     showToast("Captured");
     closeCaptureModal();
     await loadInbox();
+    recordActivity();
   } else if (modalMode === "task") {
     const created = await createTaskRecord({ title: text });
     if (!created) {

@@ -1,8 +1,8 @@
 """End-to-end: priority stars on the wins counter (Tier 2 #7).
 
 One ⭐ per high-priority completion today. Medium and low still feed the
-total `✓ N today` count but earn no star. Stars wrap 5 per row up to 3
-rows (15 visible); past that a `+N` overflow tag sits on the last row.
+total `✓ N today` count but earn no star. Stars render on a single row
+(up to 10 visible); past that a `+N` overflow tag closes the row.
 """
 
 from __future__ import annotations
@@ -87,33 +87,33 @@ def test_five_highs_fill_one_row(page, live_server):
 
 
 @pytest.mark.e2e
-def test_seven_highs_fill_one_row_and_a_partial(page, live_server):
+def test_seven_highs_stay_on_one_row(page, live_server):
     page.goto(live_server.url)
     for i in range(7):
         _mark_done_today(page, _make_task(page, f"high {i}", priority="high"))
     page.reload()
 
     rows = page.locator("#wins-stars .wins-row")
-    expect(rows).to_have_count(2)
-    expect(rows.nth(0)).to_have_text("⭐⭐⭐⭐⭐")
-    expect(rows.nth(1)).to_have_text("⭐⭐")
+    expect(rows).to_have_count(1)
+    expect(rows.first).to_have_text("⭐⭐⭐⭐⭐⭐⭐")
 
 
 # --- Overflow ------------------------------------------------------------
 
 
 @pytest.mark.e2e
-def test_overflow_indicator_when_over_fifteen(page, live_server):
+def test_overflow_indicator_past_the_cap(page, live_server):
     page.goto(live_server.url)
-    for i in range(18):
+    for i in range(13):
         _mark_done_today(page, _make_task(page, f"high {i}", priority="high"))
     page.reload()
 
     rows = page.locator("#wins-stars .wins-row")
-    expect(rows).to_have_count(3)
-    # Bottom row carries the +N tag.
-    expect(rows.nth(2).locator(".wins-overflow")).to_have_text("+3")
-    expect(page.locator("#wins")).to_contain_text("✓ 18 today")
+    expect(rows).to_have_count(1)
+    # 10 stars visible, then a +3 overflow tag on the same row.
+    expect(rows.first).to_contain_text("⭐⭐⭐⭐⭐⭐⭐⭐⭐⭐")
+    expect(rows.first.locator(".wins-overflow")).to_have_text("+3")
+    expect(page.locator("#wins")).to_contain_text("✓ 13 today")
 
 
 # --- Mixed priority ------------------------------------------------------

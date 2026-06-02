@@ -87,6 +87,11 @@ This was meant for the adhd brain, you can schedule things today, or...not today
 
 You get a counter for tasks completed, a star for completing high priority tasks.
 
+There's also a momentum gauge — a little flame that warms up the more you use the
+app and cools off *gently* if you don't. Falling off for a day doesn't nuke your
+progress the way a streak would; it just dims a bit. Click it for a gauge + a
+heatmap of the last couple months.
+
 You can add notes, and tasks, and notes to tasks, make tasks from notes.
 
 For tasks you want repeat, like whatever, exercise, music practice, staring into the void,

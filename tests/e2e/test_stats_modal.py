@@ -2,7 +2,8 @@
 
 Click ``#wins`` → modal opens with five tabs (Today / Week / Month /
 Year / All-time). Each tab shows a total, a priority breakdown
-(⭐/●/○), and the current streak (always the full-history value).
+(⭐/●/○), and the momentum gauge + activity mosaic (full-history,
+window-independent).
 
 For tabs beyond Today, seeding requires arbitrary ``completedAt``
 timestamps. The server doesn't accept completedAt via POST or PATCH
@@ -167,51 +168,18 @@ def test_all_time_includes_older_completions_today_does_not(page, live_server):
     expect(page.locator(".stats-prio-low")).to_have_text("○ 1")
 
 
-# --- streak --------------------------------------------------------------
+# --- momentum (replaced the streak line) ---------------------------------
 
 
 @pytest.mark.e2e
-def test_streak_counts_consecutive_days_back_from_today(page, live_server):
-    now = time.time()
-    one_day = 86400
-    # Today, yesterday, day before — 3-day streak.
-    _seed_tasks(
-        live_server.data_dir,
-        [
-            _task(id="d0", title="today", completed_at=now),
-            _task(id="d1", title="yesterday", completed_at=now - one_day),
-            _task(id="d2", title="two ago", completed_at=now - 2 * one_day),
-            # Gap on day 3.
-            _task(id="d4", title="four ago", completed_at=now - 4 * one_day),
-        ],
-    )
+def test_modal_shows_momentum_and_no_streak(page, live_server):
+    """The streak line is gone; the modal now shows the momentum gauge +
+    mosaic instead."""
     page.goto(live_server.url)
     page.locator("#wins").click()
-    expect(page.locator(".stats-streak")).to_have_text("🔥 3-day streak")
-
-
-@pytest.mark.e2e
-def test_streak_walks_back_from_yesterday_when_today_empty(page, live_server):
-    now = time.time()
-    one_day = 86400
-    # No completion today; yesterday + day before = 2-day streak.
-    _seed_tasks(
-        live_server.data_dir,
-        [
-            _task(id="d1", title="yesterday", completed_at=now - one_day),
-            _task(id="d2", title="two ago", completed_at=now - 2 * one_day),
-        ],
-    )
-    page.goto(live_server.url)
-    page.locator("#wins").click()
-    expect(page.locator(".stats-streak")).to_have_text("🔥 2-day streak")
-
-
-@pytest.mark.e2e
-def test_streak_zero_when_no_completions(page, live_server):
-    page.goto(live_server.url)
-    page.locator("#wins").click()
-    expect(page.locator(".stats-streak")).to_have_text("🔥 no current streak")
+    expect(page.locator(".momentum-gauge")).to_be_visible()
+    expect(page.locator(".momentum-mosaic")).to_be_visible()
+    expect(page.locator(".stats-streak")).to_have_count(0)
 
 
 # --- live update on TASK_CHANGED bus event ------------------------------

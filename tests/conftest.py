@@ -37,6 +37,7 @@ def tmp_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "DAYS_DIR", days)
     monkeypatch.setattr(server, "INBOX_FILE", data / "inbox.json")
     monkeypatch.setattr(server, "TASKS_FILE", data / "tasks.json")
+    monkeypatch.setattr(server, "ACTIVITY_FILE", data / "activity.json")
     monkeypatch.setattr(server, "CALENDAR_DIR", data / "UserCalendar")
     return data
 

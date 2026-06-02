@@ -9,6 +9,7 @@ export const dateWeekdayEl = $("#date-weekday");
 export const dateMonthDayEl = $("#date-monthday");
 export const winsEl = $("#wins");
 export const winsStarsEl = $("#wins-stars");
+export const momentumEmberEl = $("#momentum-ember");
 
 export const list = $("#inbox-list");
 export const countEl = $("#inbox-count");

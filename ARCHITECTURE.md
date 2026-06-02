@@ -1,6 +1,6 @@
 # Architecture
 
-*Last updated: 2026-05-29 — mobile tabbed shell (#20) + focus queue (#21) shipped, plus recur/snooze popover clipping fix. See also [README.md](README.md).*
+*Last updated: 2026-06-01 — momentum gauge + activity mosaic (#23, replaces the streak; new `data/activity.json` + `/api/activity`), inline inbox capture bar, and a topbar layout rework (#24). See also [CONTEXT.md](CONTEXT.md), [TODO.md](TODO.md), [README.md](README.md).*
 
 ## One-paragraph summary
 
@@ -9,7 +9,7 @@ A single Python FastAPI process serves a plain-HTML/ES-modules SPA on `http://lo
 ## Tech stack
 
 - **Server:** Python ≥ 3.11, FastAPI ≥ 0.115, Uvicorn, Pydantic v2. Three files: `server.py`, `storage.py`, `calendar_overlay.py`.
-- **Frontend:** Plain HTML + CSS + ES2020 modules. No bundler, no framework, no build step. 20 modules in `web/`, ~4,300 lines total.
+- **Frontend:** Plain HTML + CSS + ES2020 modules. No bundler, no framework, no build step. 21 modules in `web/`, ~4,600 lines total.
 - **Storage:** Versioned JSON files in `data/` (gitignored). Atomic writes via `tempfile` + `os.replace`. Schema upgrades are chained on read.
 - **Calendar overlay:** Reads `.ics` files under `data/UserCalendar/` via `icalendar` + `recurring-ical-events`. Strictly one-way — the assistant never writes back.
 - **Package manager:** [uv](https://docs.astral.sh/uv/) (project-managed via `pyproject.toml` + `uv.lock`). `uv run python server.py` materialises `.venv` from the lockfile on first run.
@@ -51,18 +51,20 @@ A single Python FastAPI process serves a plain-HTML/ES-modules SPA on `http://lo
 │   ├── focus.js           # focus timer state machine + launcher
 │   ├── queue.js           # focus queue: one-task-at-a-time overlay (today-scoped)
 │   ├── views.js           # mobile top-level Timeline/Triage view switcher
+│   ├── momentum.js        # momentum ember + activity mosaic (decaying use score)
 │   ├── wins.js            # ✓ N today counter + priority stars
 │   ├── calendar.js        # /api/calendar/events fetch + overlay render
 │   └── toast.js           # transient + undo toasts
 ├── data/                  # created on first run; gitignored
 │   ├── tasks.json         # versioned: {"version": 3, "items": [...]}
 │   ├── inbox.json         # versioned: {"version": 3, "items": [...]}
+│   ├── activity.json      # momentum log: {"version": 1, "days": {date: count}}
 │   ├── UserCalendar/      # drop-zone for read-only .ics files
 │   └── days/              # legacy per-day files (only on pre-Phase-4 installs)
 └── tests/
     ├── conftest.py        # tmp_data_dir, client, factory fixtures
-    ├── unit/              # 161 tests via FastAPI TestClient (< 2 s)
-    └── e2e/               # 137 tests via pytest-playwright + uvicorn subprocess
+    ├── unit/              # 166 tests via FastAPI TestClient (< 2 s)
+    └── e2e/               # 140 tests via pytest-playwright + uvicorn subprocess
 ```
 
 ## Data model
@@ -122,6 +124,18 @@ Schema version 2 dropped the v1 `status: "active" | "not_today"` field in favor 
 }
 ```
 
+### Activity log (`data/activity.json`)
+
+Powers the momentum gauge. A flat per-local-day counter, intentionally **outside** the
+versioned task/inbox schema chain (so its date→count map never gets fed to the
+task-oriented `_UPGRADES`):
+
+```jsonc
+{ "version": 1, "days": { "2026-06-01": 7, "2026-05-31": 2 } }
+```
+
+Read/written with the raw `read_json` / `write_json` primitives, not `load/save_versioned`.
+
 ## HTTP API
 
 | Method | Path                              | Purpose                                                                          |
@@ -139,6 +153,8 @@ Schema version 2 dropped the v1 `status: "active" | "not_today"` field in favor 
 | DELETE | `/api/inbox/{id}`                 | Soft-delete                                                                      |
 | POST   | `/api/inbox/{id}/restore`         | Clear `deletedAt`                                                                |
 | GET    | `/api/calendar/events?date=…`     | Read-only overlay for the given date from `data/UserCalendar/*.ics`              |
+| GET    | `/api/activity`                   | Momentum activity log: `{days: {date: count}}`                                   |
+| POST   | `/api/activity`                   | Record one unit of activity for the server's local today (bumps the count)       |
 
 Validation: empty titles → 400, unknown priority → 400, malformed `YYYY-MM-DD` → 400, missing id → 404. Pydantic models reject unknown fields silently (`model_fields_set` only contains what the client sent).
 
@@ -259,11 +275,29 @@ The endpoint accepts a date and returns a flat list. `calendar.js` subscribes to
 - **Skip** rotates the head to the back (`queue.push(queue.shift())`) — nothing is lost, the count holds, you cycle.
 - Entry: a `Queue` button in `.timeline-actions` and the `\q` slash command. While active (`isQueueActive()` gate in `keyboard.js`): `c`/`Enter` complete, `s` skip, `Esc` exits. No server change — pure client feature over existing selectors and endpoints.
 
+### Momentum gauge
+
+`web/momentum.js` replaces the old `🔥 streak` with a forgiving "ember" driven by the
+`data/activity.json` log. It keeps an in-memory `{date: count}` map (loaded from
+`GET /api/activity` on boot) and renders two things: the always-visible topbar ember
+(`#momentum-ember`) and, inside the stats modal, a gauge + a last-~10-weeks mosaic
+(built by `buildMomentumSection()`, which `stats.js` drops in where the streak line was).
+
+- **Score:** `Σ_{d<21} count[today−d] · 0.85^d` (half-life ≈ 4 days) → tunable levels
+  ("let's get going" → "blazing"). It only ever decays gently; there's no zero/"lost"
+  state, by design.
+- **Recording:** `recordActivity()` POSTs `/api/activity` (trailing-debounced ~400 ms),
+  updates the local map from the response, and re-renders the ember (+ the modal via an
+  `onActivityChange` listener `stats.js` registers). Wired to the `TASK_CREATED` /
+  `TASK_CHANGED` / `TASK_COMPLETED` bus events, plus explicit calls in the two inbox-capture
+  paths (which don't emit on the bus). `initMomentum()` also fires a once-per-local-day
+  "open" check-in, guarded via `localStorage["activity-open"]`. Counts are approximate.
+
 ## Operational notes
 
 - **Run:** `./run.sh` (or `make run` for the same thing inline). First launch fetches Python 3.11 via uv if not installed, materialises `.venv` from `uv.lock`, then starts the server and opens the browser.
 - **Use uv, never pip directly:** `uv sync` for dev (pulls runtime + dev deps); `uv run --no-dev …` for production-shape runs.
-- **Tests:** `make test` (161 unit, < 2 s). `make test-e2e` (137 E2E, ~150 s on Chromium). `make test-all` for both.
+- **Tests:** `make test` (166 unit, < 2 s). `make test-e2e` (140 E2E, ~190 s on Chromium). `make test-all` for both.
 - **First-time E2E setup:** `uv run playwright install chromium` (one-shot ~90 MB download).
 - **Smoke testing the server by hand:** use a throwaway date like `1999-01-01` for any `PATCH` writes — never today, never a real date with user data.
 - **Stale bytecode:** if a server change "doesn't take effect," `rm -rf __pycache__` and rerun. (See memory note: `feedback_clear_pycache.md`.)
@@ -277,8 +311,8 @@ Three layers, sharply different in cost and value:
 
 | Layer | Tool | Lives in | Run | What it catches |
 |---|---|---|---|---|
-| **Server unit / integration** | `pytest` + FastAPI `TestClient` | `tests/unit/` (161 tests) | `make test` | Endpoint contracts, validation, persistence, migration chain, calendar parsing |
-| **End-to-end happy paths** | `pytest-playwright` | `tests/e2e/` (137 tests) | `make test-e2e` | Drag/resize, modals, slash-commands, layout (incl. mobile view switcher), task-row interactions, focus timer, focus queue, calendar overlay |
+| **Server unit / integration** | `pytest` + FastAPI `TestClient` | `tests/unit/` (166 tests) | `make test` | Endpoint contracts, validation, persistence, migration chain, calendar parsing, activity log |
+| **End-to-end happy paths** | `pytest-playwright` | `tests/e2e/` (140 tests) | `make test-e2e` | Drag/resize, modals, slash-commands, layout (incl. mobile view switcher), task-row interactions, focus timer, focus queue, momentum gauge, calendar overlay |
 | **Smoke (dev-time)** | `curl` + Claude Preview MCP | n/a | ad-hoc | Quick verification while iterating; not committed |
 
 **Isolation:**
@@ -338,6 +372,7 @@ History of shape-changing events. Things that aren't obvious from the current co
 - **2026-05-21 — Packaging.** Added `README.md`, `run.sh` / `run.bat`, `make_release.sh`. Converted to a uv-managed project: `pyproject.toml` + `uv.lock` supersede `requirements.txt` / `requirements-dev.txt`. Release tarball ships locked dep tree.
 - **2026-05-29 — Tier 2 #15: sticky-time recurring (schema v3).** Added `recurSchedule` + `recurExceptions`. The day view projects a block at the configured time on matching weekdays without writing to disk (`projectedScheduleFor`); editing/dragging a projection writes a real `schedule` for that day. `↻` recur popover replaces the boolean toggle; projected blocks render dashed.
 - **2026-05-29 — Tier 2 #20 + #21: mobile shell + focus queue (no server change).** `web/views.js` adds a CSS-collapse Timeline/Triage view switcher below 720 px (desktop untouched). `web/queue.js` adds a one-task-at-a-time overlay scoped to today (Complete / Skip-to-back), built fresh from `tasks` on open rather than subscribing to the bus. Same change fixed recur/snooze popover clipping via a shared `positionPopover` helper (prefer-below, flip-above, clamp) plus a `max-height`/`overflow-y` safety net on `.snooze-menu` / `.recur-menu`.
+- **2026-06-01 — #23 momentum gauge + #24 inbox bar / topbar rework.** Retired the brittle `🔥 streak` for a decaying "momentum" ember + last-~10-weeks mosaic (`web/momentum.js`), backed by a new self-contained `data/activity.json` + `GET`/`POST /api/activity` (the first store deliberately kept *out* of the versioned task/inbox schema chain). Added an inline Inbox capture bar (touch-reachable quick capture). Topbar reworked: Focus pill moved back beside `#wins` in a `.topbar-actions` row (same shape), priority stars collapsed to a single capped row beneath, and the momentum ember placed on the left next to the date; `.timeline-head` reverted from the 3-column "center Focus" grid to a flex.
 
 ## Planned changes
 
@@ -348,4 +383,4 @@ Status of each is tracked in TODO.md; the *why* lives there too. Notable items s
 - **Tier 3** — micro-celebration on done, in-page search (`\?`), URL title fetch for inbox, settings menu (incl. configurable focus window), periodic purge of long-soft-deleted records.
 - **Parked** — picture attachments via Markdown image refs, recurring custom cadences, calendar v2 with auto-refresh on file change.
 
-Recently shipped (now history above, not planned): Phase 5 polish (#6), stats modal (#8), focus timer (#9), task-row redesign + schema v2 (#12), sticky-time recurring + schema v3 (#15), off-hours visual pressure (#19), mobile tabbed shell (#20), focus queue (#21).
+Recently shipped (now history above, not planned): Phase 5 polish (#6), stats modal (#8), focus timer (#9), task-row redesign + schema v2 (#12), sticky-time recurring + schema v3 (#15), off-hours visual pressure (#19), mobile tabbed shell (#20), focus queue (#21), momentum gauge + activity log (#23), inbox capture bar + topbar rework (#24).
