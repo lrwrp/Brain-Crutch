@@ -5,7 +5,7 @@
 // via ``recomputeDayView`` so drag/resize collision checks (``overlaps``)
 // always see the latest schedule.
 
-import { todayKey, parseDateKey } from "./time.js";
+import { todayKey, parseDateKey, nowMinutes } from "./time.js";
 import { bus, EVENTS } from "./events.js";
 
 export let tasks = [];
@@ -44,26 +44,47 @@ const WEEKDAY_TOKENS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 //   - the weekday isn't in recurSchedule.days (null/empty days = every day).
 // The projection is display-only: it never writes a schedule to disk until
 // the user drags/edits the block.
-export function projectedScheduleFor(task, dateKey) {
-  if (!task || !task.recurSchedule) return null;
-  if (task.schedule && task.schedule.date === dateKey) return null;
+// Does a task's recurSchedule day-pattern land on `dateKey` (ignoring time)?
+// A one-day recurExceptions entry suppresses it; null/empty days = every day.
+function recurLandsOn(task, dateKey) {
   if (
     Array.isArray(task.recurExceptions) &&
     task.recurExceptions.includes(dateKey)
   ) {
-    return null;
+    return false;
   }
-  const rs = task.recurSchedule;
-  const days = rs.days;
+  const days = task.recurSchedule.days;
   if (Array.isArray(days) && days.length) {
     const token = WEEKDAY_TOKENS[parseDateKey(dateKey).getDay()];
-    if (!days.includes(token)) return null;
+    if (!days.includes(token)) return false;
   }
+  return true;
+}
+
+export function projectedScheduleFor(task, dateKey) {
+  if (!task || !task.recurSchedule) return null;
+  // Un-timed recurrence (no startMin) never projects onto the timeline — it's
+  // a Queue-only recurrence (granularity epic #25).
+  if (task.recurSchedule.startMin == null) return null;
+  if (task.schedule && task.schedule.date === dateKey) return null;
+  if (!recurLandsOn(task, dateKey)) return null;
+  const rs = task.recurSchedule;
   return {
     date: dateKey,
     startMin: rs.startMin,
     durationMin: rs.durationMin,
   };
+}
+
+// True when `task` is an *un-timed* recurring task (recurSchedule with no
+// startMin) whose pattern does NOT land on `dateKey` — so it's hidden from the
+// Queue that day. A derived "snooze", never written to disk (mirrors the
+// display-only projection). Timed recurs aren't affected — they live on the
+// timeline, handled by projectedScheduleFor.
+export function isUntimedRecurHiddenOn(task, dateKey) {
+  const rs = task && task.recurSchedule;
+  if (!rs || rs.startMin != null) return false;
+  return !recurLandsOn(task, dateKey);
 }
 
 function rangesOverlap(aStart, aDur, bStart, bDur) {
@@ -183,6 +204,32 @@ export function isSnoozedNow(task) {
 // the question without reaching into task.schedule.date themselves.
 export function isScheduledToday(task) {
   return !!(task && task.schedule && task.schedule.date === todayKey());
+}
+
+// The task whose block sits under the now-line right now: scheduled on today
+// (real or sticky-projected) such that the current minute falls inside its
+// [start, start+duration) window, and not already done/snoozed. Used by focus
+// mode to bind the session to "what I'm supposed to be doing now" (granularity
+// epic #25, Stage 5). When two blocks somehow contain `now`, the later-starting
+// one wins (the thing you most recently rolled into). Returns null when nothing
+// is scheduled for the current moment.
+export function currentTimelineTask() {
+  const now = nowMinutes();
+  const key = todayKey();
+  let best = null;
+  for (const t of tasks) {
+    if (isDoneToday(t) || isSnoozedNow(t)) continue;
+    let sched = null;
+    if (t.schedule && t.schedule.date === key) sched = t.schedule;
+    else sched = projectedScheduleFor(t, key);
+    if (!sched || sched.startMin == null) continue;
+    if (now >= sched.startMin && now < sched.startMin + sched.durationMin) {
+      if (!best || sched.startMin > best.startMin) {
+        best = { task: t, startMin: sched.startMin };
+      }
+    }
+  }
+  return best ? best.task : null;
 }
 
 // True when the task's schedule.date is in the past and it hasn't been

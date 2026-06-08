@@ -15,7 +15,7 @@ from typing import List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # Storage primitives live in storage.py. They're imported here (not re-imported
 # at call sites) so tests can monkeypatch ``server.DATA`` etc. and have route
@@ -249,17 +249,22 @@ WEEKDAY_TOKENS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
 class RecurSchedule(BaseModel):
-    """Sticky-time recurrence spec (Tier 2 #15).
+    """Recurrence spec (Tier 2 #15 + granularity epic #25).
 
-    A task carrying a ``recurSchedule`` projects onto each matching day at the
-    same ``startMin`` / ``durationMin`` without a per-day schedule write. The
-    projection is display-only on the client until the user drags/edits it
-    (which writes a real ``schedule`` for that day). ``days`` is a list of
-    weekday tokens, or ``None`` for every day.
+    Two flavors, distinguished by ``startMin``:
+      - **Timed** (``startMin`` set): projects onto each matching day at the
+        same ``startMin`` / ``durationMin`` without a per-day schedule write
+        (display-only until the user drags/edits it). Lives on the timeline.
+      - **Un-timed** (``startMin`` is ``None``): no clock time, no timeline
+        projection — the task shows in the Queue on matching days and is
+        derived-hidden on off-days. ``durationMin`` is irrelevant and forced
+        to ``None``.
+
+    ``days`` is a list of weekday tokens, or ``None`` for every day.
     """
 
-    startMin: int = Field(ge=0, le=24 * 60)
-    durationMin: int = Field(ge=1, le=24 * 60)
+    startMin: Optional[int] = Field(default=None, ge=0, le=24 * 60)
+    durationMin: Optional[int] = Field(default=None, ge=1, le=24 * 60)
     days: Optional[List[str]] = None
 
     @field_validator("days")
@@ -271,6 +276,16 @@ class RecurSchedule(BaseModel):
             if d not in WEEKDAY_TOKENS:
                 raise ValueError(f"recurSchedule.days entries must be one of {WEEKDAY_TOKENS}")
         return v
+
+    @model_validator(mode="after")
+    def _normalize_time(self) -> "RecurSchedule":
+        # Un-timed (no startMin) → no durationMin. Timed but missing a
+        # duration → fall back to the default block length.
+        if self.startMin is None:
+            self.durationMin = None
+        elif self.durationMin is None:
+            self.durationMin = DEFAULT_DURATION_MIN
+        return self
 
 
 def _validate_date_list(v: Optional[List[str]]) -> List[str]:

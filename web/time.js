@@ -89,6 +89,36 @@ export function clampStart(startMin, duration) {
   );
 }
 
+// Duration ladder for the L/M control: 5-minute steps, a single sub-5 "quick
+// win" rung (stored as 1 — the negligible/quadrant-4 marker), open-ended at
+// the top. Snaps off-grid values onto the 5-min grid as it steps.
+export function stepDuration(min, dir) {
+  const v = Number.isFinite(min) ? min : DEFAULT_DURATION_MIN;
+  if (dir > 0) {
+    if (v < 5) return 5;
+    return Math.floor(v / 5) * 5 + 5;
+  }
+  if (v <= 5) return 1; // floor: the "< 5" rung
+  return Math.ceil(v / 5) * 5 - 5;
+}
+
+// Exact, human-friendly duration — used in the triage rows ("full duration").
+// 1m, 30m, 1h, 1h 15m.
+export function formatDuration(min) {
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+// Bucketed duration — used on the Queue card as a size cue: "< 5" / "> 60" at
+// the ends, exact in between.
+export function formatDurationBucket(min) {
+  if (min < 5) return "< 5";
+  if (min > 60) return "> 60";
+  return `${min}m`;
+}
+
 export function relativeTime(ts) {
   const diff = Date.now() / 1000 - ts;
   if (diff < 60) return "just now";

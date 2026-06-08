@@ -84,6 +84,15 @@ export const focusCancelBtn = $("#focus-cancel-btn");
 export const focusRestartBtn = $("#focus-restart-btn");
 export const focusCloseBtn = $("#focus-close-btn");
 export const focusDoneDetailEl = $("#focus-done-detail");
+// Stage 5: the task bound to a running focus session (block under the now-line).
+export const focusTaskEl = $("#focus-task");
+export const focusTaskPriorityEl = $("#focus-task-priority");
+export const focusTaskDueEl = $("#focus-task-due");
+export const focusTaskNotesBtn = $("#focus-task-notes-btn");
+export const focusTaskTitleEl = $("#focus-task-title");
+export const focusTaskNotesEl = $("#focus-task-notes");
+export const focusSnoozeBtn = $("#focus-snooze-btn");
+export const focusTaskCompleteBtn = $("#focus-task-complete-btn");
 
 // Focus queue (one task at a time).
 export const queueBtn = $("#queue-btn");
@@ -92,11 +101,13 @@ export const queueExitBtn = $("#queue-exit-btn");
 export const queueStateRunningEl = $("#queue-state-running");
 export const queueStateEmptyEl = $("#queue-state-empty");
 export const queueProgressEl = $("#queue-progress");
+export const queuePeekEl = $("#queue-peek");
 export const queuePriorityEl = $("#queue-priority");
+export const queueDurationEl = $("#queue-duration");
 export const queueDueEl = $("#queue-due");
 export const queueTitleEl = $("#queue-title");
-export const queueScheduleEl = $("#queue-schedule");
 export const queueNotesEl = $("#queue-notes");
+export const queueNotesBtn = $("#queue-notes-btn");
 export const queueSkipBtn = $("#queue-skip-btn");
 export const queueCompleteBtn = $("#queue-complete-btn");
 export const queueEmptyCloseBtn = $("#queue-empty-close-btn");

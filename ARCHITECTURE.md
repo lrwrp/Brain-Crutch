@@ -1,6 +1,6 @@
 # Architecture
 
-*Last updated: 2026-06-01 — momentum gauge + activity mosaic (#23, replaces the streak; new `data/activity.json` + `/api/activity`), inline inbox capture bar, and a topbar layout rework (#24). See also [CONTEXT.md](CONTEXT.md), [TODO.md](TODO.md), [README.md](README.md).*
+*Last updated: 2026-06-07 — granularity epic complete (#25, all 5 stages + Escape-stack fix, built as one batch on branch `duration-control`): L/M duration control, the Queue narrowed to the un-timed pile + size cue, a card-stack Queue with notes on the active card, un-timed (days-only) recurrence, and focus-mode task binding (the block under the now-line as a Snooze/Complete card). See also [CONTEXT.md](CONTEXT.md), [TODO.md](TODO.md), [README.md](README.md).*
 
 ## One-paragraph summary
 
@@ -44,7 +44,7 @@ A single Python FastAPI process serves a plain-HTML/ES-modules SPA on `http://lo
 │   ├── timeline.js        # day timeline rendering + drag/resize, calendar overlay positioning
 │   ├── triage.js          # Tasks + Inbox tabs, row rendering, snooze + recur popovers
 │   ├── modal.js           # \-prefixed slash-command capture modal
-│   ├── keyboard.js        # global keydown router (slash, WASD, c, r/e, \q, etc.)
+│   ├── keyboard.js        # global keydown router (Escape ladder, slash, WASD, L/M, c, r/e, \q)
 │   ├── markdown.js        # sanitising MD→HTML renderer + plaintext preview
 │   ├── notes.js           # notes *editor* modal
 │   ├── notes-read.js      # notes *reader* modal
@@ -64,7 +64,7 @@ A single Python FastAPI process serves a plain-HTML/ES-modules SPA on `http://lo
 └── tests/
     ├── conftest.py        # tmp_data_dir, client, factory fixtures
     ├── unit/              # 166 tests via FastAPI TestClient (< 2 s)
-    └── e2e/               # 140 tests via pytest-playwright + uvicorn subprocess
+    └── e2e/               # 154 tests via pytest-playwright + uvicorn subprocess
 ```
 
 ## Data model
@@ -87,7 +87,7 @@ A single Python FastAPI process serves a plain-HTML/ES-modules SPA on `http://lo
   "defaultDurationMin": 30,          // last-used schedule duration; used by auto-schedule
   "dueDate": "2026-05-23",           // YYYY-MM-DD or null — display only in v1
   "recurring": false,                // true: stays after `done`, resets at local midnight
-  "recurSchedule": null,             // v3: {startMin, durationMin, days[]} sticky-time spec; projected onto matching days
+  "recurSchedule": null,             // v3: {startMin, durationMin, days[]} sticky-time spec; projected onto matching days. startMin null = days-only "queue on these days, no clock time" (Stage 4)
   "recurExceptions": [],             // v3: ["YYYY-MM-DD"] days the sticky projection is suppressed
   "snoozedUntil": null,              // epoch seconds or null; >now hides from main list
   "createdAt": 1779190000.0,
@@ -266,14 +266,68 @@ The endpoint accepts a date and returns a flat list. `calendar.js` subscribes to
 
 `web/views.js` adds a top-level Timeline / Triage switcher for narrow viewports. The collapse is CSS-driven (`@media (max-width: 720px)`): the two-column `.layout` grid becomes a single column, and `body[data-mobile-view="timeline" | "triage"]` hides the inactive panel. `switchAppView(name)` sets that attribute, toggles `.app-view.active`, and persists to `localStorage["app-view"]`; `initAppViews()` restores the saved view on boot. Above 720 px the switcher is `display: none` and both panels render side-by-side — desktop is untouched. The switcher mirrors the in-triage `switchTab` pattern but operates one level up (whole panels, not tabs within the triage column).
 
-### Focus queue
+### Focus queue (the un-timed pile)
 
-`web/queue.js` is a full-screen overlay (`#queue-overlay`, modeled on the focus-timer overlay, z-index 100) that presents today's actionable tasks one at a time. It holds no bus subscription — the queue is built fresh from `tasks` each time it opens, so it always reflects current state without needing live updates. State machine: `idle | running | empty`.
+`web/queue.js` is a full-screen overlay (`#queue-overlay`, z-index 100). Model (granularity
+epic #25): **timed tasks live on the timeline; the queue is the *un-timed* pile.**
 
-- **Scope = today only.** `isTodayRelevant(task)` excludes `isSnoozedNow` / `isDoneToday`, and includes a task with a real-or-projected today schedule (`projectedScheduleFor` covers sticky recurring) **or** `dueDate <= todayKey()` (due-today + overdue). `buildQueue()` sorts timed-first by `startMin`, then untimed by overdue-first then priority, and returns an array of task ids; `queue[0]` is the current card.
-- **Complete** PATCHes `{done: true}` through the canonical `patchTaskRecord` → `upsertTaskLocal` path, drops the head, and advances; draining shows the **All clear** empty state.
-- **Skip** rotates the head to the back (`queue.push(queue.shift())`) — nothing is lost, the count holds, you cycle.
-- Entry: a `Queue` button in `.timeline-actions` and the `\q` slash command. While active (`isQueueActive()` gate in `keyboard.js`): `c`/`Enter` complete, `s` skip, `Esc` exits. No server change — pure client feature over existing selectors and endpoints.
+- **Scope.** `isQueueable(task)` includes a task only if it is *not* on today's timeline
+  (`todayStartMin` is null — no real `schedule.date === today` and no sticky projection) and
+  is active (`!isSnoozedNow && !isDoneToday`). Scheduled + overdue tasks are *not* pulled in
+  (they're on the timeline). "Don't want it today? Snooze it." `buildQueue()` sorts
+  most-urgent due-date first, then priority; `queue[0]` is the active card.
+- **Card stack.** Up to 3 **peek headers** (`#queue-peek` → title + bucketed size) flow down
+  above the active card, nearest just under its top edge, with a `+N more` tail. The active
+  card shows priority · size cue (`formatDurationBucket`) · 📝 · title · notes preview.
+- **Notes on the card.** A 📝 button + `r`/`e` open the existing reader/editor *over* the
+  queue (modals are z-index 120, above the overlay). The card subscribes to `TASK_CHANGED`
+  to re-paint live after a notes/duration edit.
+- **Complete / Skip** unchanged (`patchTaskRecord{done:true}` → advance; skip rotates the
+  head to the back). Entry: the `Queue` button + `\q`. No server change.
+- **Un-timed recurrence (Stage 4).** A `recurSchedule` with a null `startMin` is a *days-only*
+  recurrence — it repeats on its weekdays but has no clock time, so it never projects a
+  timeline block (`projectedScheduleFor` returns null). `state.isUntimedRecurHiddenOn(task,
+  dateKey)` (over `recurLandsOn`) is a **derived** off-day hide — never written to disk,
+  mirroring the display-only sticky projection — and `isQueueable` consults it so the task
+  shows in the queue only on matching days. The recur popover's "No specific time (queue
+  only)" checkbox creates these; the server's `RecurSchedule._normalize_time` validator nulls
+  `durationMin` when `startMin` is null (and defaults it to 30 for timed recurs).
+
+### Focus mode task binding (Stage 5)
+
+`web/focus.js` is the self-contained countdown (launcher → preroll → running → done). While a
+session **runs**, it also binds to *what you should be doing now*: `state.currentTimelineTask()`
+returns the task whose block (real or sticky-projected) contains the current minute, not
+done/snoozed (latest-start wins on overlap). That task is surfaced under the clock as a card
+reusing the queue card's chip classes (priority · due · 📝 · title · notes preview) with
+**Snooze + Complete** actions (vs. the queue's Skip + Complete). The card re-binds on each
+250 ms tick (so it follows the clock across block boundaries) and on `TASK_CHANGED` /
+`DAY_CHANGED`; nothing scheduled now → card hidden. Keys `c`/`s`/`r`/`e` route through
+`handleFocusKey` (called from `keyboard.js` in place of the old blanket focus-key swallow);
+Snooze reuses the triage snooze popover (exported from `triage.js`; `positionPopover` forces
+`z-index 200` so it clears the overlay).
+
+### Duration control (L / M)
+
+Un-timed tasks need a *size* so the queue can show a cue and you can place real short tasks.
+`stepTaskDuration(taskId, dir)` (`triage.js`) steps a 5-minute ladder (`stepDuration` in
+`time.js`; sub-5 "< 5" floor stored as `1`, open top) editing `defaultDurationMin` (un-timed)
+or `schedule.durationMin` (timed, clamped so growth can't overlap the next block). It's
+**optimistic + per-task debounced** so key-repeat accumulates without out-of-order writes.
+Surfaced as a `‹ Nm ›` stepper on each task row and the keyboard `L`/`M` on the selected
+task. `time.js` exposes `formatDuration` (exact, triage) and `formatDurationBucket`
+(`< 5`/`> 60`, queue card).
+
+### Escape ladder (overlay stack)
+
+`keyboard.js` owns a single global Escape ladder that pops exactly one layer, topmost first:
+**editor → reader → queue → focus → capture-modal → picker → selection**. The notes overlays
+(z 120) sit above the queue/focus overlays (z 100), so e.g. *queue → read → Esc* returns to
+the queue. The editor has *no* Escape handler of its own (the ladder owns it, so one Esc =
+one layer); notes-overlay key handling runs *before* the queue's key routing, so typing in
+the queue's note editor doesn't trigger complete/skip. `editFromReader` passes an `onClose`
+callback so an editor reached via "read → edit" returns to the reader on Esc/cancel (saving
+exits fully).
 
 ### Momentum gauge
 
@@ -297,7 +351,7 @@ The endpoint accepts a date and returns a flat list. `calendar.js` subscribes to
 
 - **Run:** `./run.sh` (or `make run` for the same thing inline). First launch fetches Python 3.11 via uv if not installed, materialises `.venv` from `uv.lock`, then starts the server and opens the browser.
 - **Use uv, never pip directly:** `uv sync` for dev (pulls runtime + dev deps); `uv run --no-dev …` for production-shape runs.
-- **Tests:** `make test` (166 unit, < 2 s). `make test-e2e` (140 E2E, ~190 s on Chromium). `make test-all` for both.
+- **Tests:** `make test` (166 unit, < 2 s). `make test-e2e` (154 E2E, ~190 s on Chromium). `make test-all` for both.
 - **First-time E2E setup:** `uv run playwright install chromium` (one-shot ~90 MB download).
 - **Smoke testing the server by hand:** use a throwaway date like `1999-01-01` for any `PATCH` writes — never today, never a real date with user data.
 - **Stale bytecode:** if a server change "doesn't take effect," `rm -rf __pycache__` and rerun. (See memory note: `feedback_clear_pycache.md`.)
@@ -312,7 +366,7 @@ Three layers, sharply different in cost and value:
 | Layer | Tool | Lives in | Run | What it catches |
 |---|---|---|---|---|
 | **Server unit / integration** | `pytest` + FastAPI `TestClient` | `tests/unit/` (166 tests) | `make test` | Endpoint contracts, validation, persistence, migration chain, calendar parsing, activity log |
-| **End-to-end happy paths** | `pytest-playwright` | `tests/e2e/` (140 tests) | `make test-e2e` | Drag/resize, modals, slash-commands, layout (incl. mobile view switcher), task-row interactions, focus timer, focus queue, momentum gauge, calendar overlay |
+| **End-to-end happy paths** | `pytest-playwright` | `tests/e2e/` (163 tests) | `make test-e2e` | Drag/resize, modals, slash-commands, layout (incl. mobile view switcher), task-row interactions, duration control, focus timer, focus queue, focus-mode task binding, un-timed recurrence, momentum gauge, calendar overlay |
 | **Smoke (dev-time)** | `curl` + Claude Preview MCP | n/a | ad-hoc | Quick verification while iterating; not committed |
 
 **Isolation:**
@@ -373,11 +427,14 @@ History of shape-changing events. Things that aren't obvious from the current co
 - **2026-05-29 — Tier 2 #15: sticky-time recurring (schema v3).** Added `recurSchedule` + `recurExceptions`. The day view projects a block at the configured time on matching weekdays without writing to disk (`projectedScheduleFor`); editing/dragging a projection writes a real `schedule` for that day. `↻` recur popover replaces the boolean toggle; projected blocks render dashed.
 - **2026-05-29 — Tier 2 #20 + #21: mobile shell + focus queue (no server change).** `web/views.js` adds a CSS-collapse Timeline/Triage view switcher below 720 px (desktop untouched). `web/queue.js` adds a one-task-at-a-time overlay scoped to today (Complete / Skip-to-back), built fresh from `tasks` on open rather than subscribing to the bus. Same change fixed recur/snooze popover clipping via a shared `positionPopover` helper (prefer-below, flip-above, clamp) plus a `max-height`/`overflow-y` safety net on `.snooze-menu` / `.recur-menu`.
 - **2026-06-01 — #23 momentum gauge + #24 inbox bar / topbar rework.** Retired the brittle `🔥 streak` for a decaying "momentum" ember + last-~10-weeks mosaic (`web/momentum.js`), backed by a new self-contained `data/activity.json` + `GET`/`POST /api/activity` (the first store deliberately kept *out* of the versioned task/inbox schema chain). Added an inline Inbox capture bar (touch-reachable quick capture). Topbar reworked: Focus pill moved back beside `#wins` in a `.topbar-actions` row (same shape), priority stars collapsed to a single capped row beneath, and the momentum ember placed on the left next to the date; `.timeline-head` reverted from the 3-column "center Focus" grid to a flex.
+- **2026-06-05 — #25 granularity epic, Stages 1–3 (branch `duration-control`, not yet merged).** Reframed "finer timeline granularity" into a model where **timed → timeline, un-timed → queue**, and *size* (not a 3× canvas) is the real need. Stage 1: L/M duration control (`stepDuration`/`formatDuration`/`formatDurationBucket` in `time.js`; `stepTaskDuration` optimistic+debounced in `triage.js`; row stepper + keys). Stage 2: the Queue narrowed to the un-timed pile (`isQueueable`) with a bucketed size cue. Stage 3: card-stack Queue (peek headers + `+N` + notes on the active card). Plus an Escape-stack fix — the global ladder now pops the topmost overlay first (notes z 120 above queue/focus z 100), the editor lost its own Esc handler, and notes-overlay keys are handled before the queue's key routing; `editFromReader` returns to the reader via an `onClose` callback. The decided-but-unbuilt design (Stages 4 un-timed recurrence, 5 focus-mode binding) lives in `~/.claude/plans/moonlit-zooming-kurzweil.md`.
+- **2026-06-07 — #25 granularity epic, Stages 4–5 (branch `duration-control`; epic now complete).** Stage 4: un-timed (days-only) recurrence — `recurSchedule.startMin`/`durationMin` nullable (server `_normalize_time` validator), `state.recurLandsOn` + derived `isUntimedRecurHiddenOn` off-day hide, `projectedScheduleFor` null-start guard, `isQueueable` consults the hide, recur popover "No specific time (queue only)" checkbox. Stage 5: focus-mode task binding — `state.currentTimelineTask()` finds the block under the now-line; the running focus overlay surfaces it as a Snooze/Complete card (queue-card chip classes) with 📝 + `c`/`s`/`r`/`e` via `handleFocusKey`, re-binding on tick + bus events; snooze popover exported from `triage.js`. The whole epic (Stages 1–5 + Escape-stack fix) was built as one uncommitted batch, then committed together; GitHub sync of the epic is still deferred.
 
 ## Planned changes
 
 Status of each is tracked in TODO.md; the *why* lives there too. Notable items still open:
 
+- **GitHub sync of the granularity epic (#25)** — the epic is complete and committed locally on `duration-control`; the curated push to `lrwrp/Brain-Crutch` is still deferred.
 - **Empty-state CTAs + section counts (Tier 2 #10)** — "Press `\n` to capture" inside empty tabs; Tasks-tab + Snoozed counts.
 - **Push-forward on uncompleted scheduled tasks (Tier 2 #16)** — per-task opt-in "drift" that re-anchors a block past the now-line if it's not done.
 - **Tier 3** — micro-celebration on done, in-page search (`\?`), URL title fetch for inbox, settings menu (incl. configurable focus window), periodic purge of long-soft-deleted records.

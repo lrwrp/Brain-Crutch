@@ -22,7 +22,13 @@ import {
   isNotesReaderOpen,
   openNotesReader,
 } from "./notes-read.js";
-import { cancelFocus, isFocusActive, openLauncher } from "./focus.js";
+import {
+  cancelFocus,
+  isFocusActive,
+  openLauncher,
+  handleFocusKey,
+} from "./focus.js";
+import { stepTaskDuration } from "./triage.js";
 import {
   isQueueActive,
   openQueue,
@@ -107,16 +113,10 @@ async function bumpSelectedPriority(delta) {
 export function initKeyboard() {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (isQueueActive()) {
-        e.preventDefault();
-        closeQueue();
-        return;
-      }
-      if (isFocusActive()) {
-        e.preventDefault();
-        cancelFocus();
-        return;
-      }
+      // Pop exactly one layer, topmost first. The notes overlays (z 120) sit
+      // ABOVE the queue/focus overlays (z 100), so they close before the queue —
+      // e.g. queue → read → Esc returns to the queue, queue → read → edit → Esc
+      // returns to read, then Esc again to the queue.
       if (isNotesEditorOpen()) {
         e.preventDefault();
         closeNotesEditor();
@@ -125,6 +125,16 @@ export function initKeyboard() {
       if (isNotesReaderOpen()) {
         e.preventDefault();
         closeNotesReader();
+        return;
+      }
+      if (isQueueActive()) {
+        e.preventDefault();
+        closeQueue();
+        return;
+      }
+      if (isFocusActive()) {
+        e.preventDefault();
+        cancelFocus();
         return;
       }
       if (isModalOpen()) {
@@ -151,26 +161,35 @@ export function initKeyboard() {
       }
     }
 
-    // The focus queue overlay owns its own keys (c complete / s skip / Enter)
-    // and swallows everything else while it's up. Esc is handled above.
+    // Notes overlays sit on top of everything (including the queue), so they
+    // take precedence over the queue's key routing below. The editor textarea
+    // owns its own typing (Enter saves / Shift+Enter newline via notes.js), so
+    // here we just let keys through to it. The reader's only key is `e` → edit
+    // (the keyboard twin of its [Edit] button); editFromReader uses the
+    // reader's own activeTaskId, so it works even when opened by 📝 click.
+    if (isNotesEditorOpen()) return;
+    if (isNotesReaderOpen()) {
+      if (e.key === "e" || e.key === "E") {
+        e.preventDefault();
+        editFromReader();
+      }
+      return;
+    }
+
+    // The focus queue overlay owns its own keys (c complete / s skip / r/e
+    // notes / Enter) and swallows everything else while it's up. Esc + the
+    // notes overlays are handled above.
     if (isQueueActive()) {
       handleQueueKey(e);
       return;
     }
 
-    // While a modal is open, let it own all keys. The notes reader is special
-    // — its only chrome is the [Edit] button, so we want `e` here to behave
-    // as the keyboard equivalent of clicking that button. The focus overlay
-    // owns its own buttons + Esc; gate global keys behind it too.
-    if (isModalOpen() || isNotesEditorOpen() || isFocusActive()) return;
-    if (isNotesReaderOpen()) {
-      if (e.key === "e" || e.key === "E") {
-        e.preventDefault();
-        // editFromReader uses the reader's own activeTaskId, so this also
-        // works when the reader was opened by 📝 click (which doesn't set
-        // selectedTaskId on its own).
-        editFromReader();
-      }
+    // Capture modal owns its keys. The focus overlay routes to its bound-task
+    // handler (c complete / s snooze / r·e notes when a task is bound) and
+    // swallows everything else while it's up.
+    if (isModalOpen()) return;
+    if (isFocusActive()) {
+      handleFocusKey(e);
       return;
     }
 
@@ -240,6 +259,16 @@ export function initKeyboard() {
       if (e.key === "d" || e.key === "D") {
         e.preventDefault();
         bumpSelectedPriority(1);
+        return;
+      }
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        stepTaskDuration(selectedTaskId, -1); // Less time
+        return;
+      }
+      if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        stepTaskDuration(selectedTaskId, 1); // More time
         return;
       }
       if (e.key === "r" || e.key === "R") {

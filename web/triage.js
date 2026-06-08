@@ -59,6 +59,10 @@ import {
   describeDay,
   todayKey,
   formatDueDate,
+  formatDuration,
+  stepDuration,
+  DEFAULT_DURATION_MIN,
+  TIMELINE_END_MIN,
   SNOOZE_PRESETS,
 } from "./time.js";
 import { showToast, showUndoToast } from "./toast.js";
@@ -187,6 +191,127 @@ async function cyclePriorityForTask(taskId) {
     return;
   }
   upsertTaskLocal(updated);
+}
+
+// The effective duration shown/edited for a task: a scheduled block's length,
+// else its preferred default (A6). Both are real minutes.
+export function effectiveDuration(task) {
+  if (task.schedule) return task.schedule.durationMin;
+  return task.defaultDurationMin ?? DEFAULT_DURATION_MIN;
+}
+
+// How far a scheduled block may grow before it would overlap the next block on
+// its day (or run off the canvas). Shrinking is always safe, so this only
+// bounds growth.
+function maxDurationForScheduled(task) {
+  const s = task.schedule;
+  let maxEnd = TIMELINE_END_MIN;
+  for (const t of tasks) {
+    if (t.id === task.id || !t.schedule || t.schedule.date !== s.date) continue;
+    if (t.schedule.startMin > s.startMin && t.schedule.startMin < maxEnd) {
+      maxEnd = t.schedule.startMin;
+    }
+  }
+  return maxEnd - s.startMin;
+}
+
+// Per-task debounce timers for the duration write (see stepTaskDuration).
+const _durationWriteTimers = new Map();
+
+// Step a task's duration up/down the 5-min ladder (dir = +1 / -1). Edits the
+// block length when scheduled (clamped so growth never overlaps the next
+// block) or the preferred default when not. Shared by the row's ‹ › stepper
+// and the keyboard L / M shortcuts.
+//
+// Applies the change **optimistically** to local state (instant UI, and so
+// rapid presses / key-repeat accumulate from the updated value instead of a
+// stale one), then **debounces** the server PATCH per task so a burst coalesces
+// into a single write of the final value — avoiding out-of-order responses
+// clobbering the result.
+export function stepTaskDuration(taskId, dir) {
+  const rec = getTask(taskId);
+  if (!rec) return false;
+  const cur = effectiveDuration(rec);
+  let next = stepDuration(cur, dir);
+  if (rec.schedule && dir > 0) next = Math.min(next, maxDurationForScheduled(rec));
+  if (next === cur) return false;
+
+  // Optimistic local update (re-renders the row via the bus).
+  const optimistic = rec.schedule
+    ? { ...rec, schedule: { ...rec.schedule, durationMin: next } }
+    : { ...rec, defaultDurationMin: next };
+  upsertTaskLocal(optimistic);
+
+  if (_durationWriteTimers.has(taskId)) {
+    clearTimeout(_durationWriteTimers.get(taskId));
+  }
+  _durationWriteTimers.set(
+    taskId,
+    setTimeout(async () => {
+      _durationWriteTimers.delete(taskId);
+      const latest = getTask(taskId);
+      if (!latest) return;
+      const dur = latest.schedule
+        ? latest.schedule.durationMin
+        : latest.defaultDurationMin;
+      const patch = latest.schedule
+        ? { schedule: { ...latest.schedule, durationMin: dur } }
+        : { defaultDurationMin: dur };
+      const updated = await patchTaskRecord(taskId, patch);
+      if (!updated) {
+        showToast("Save failed");
+        return;
+      }
+      upsertTaskLocal(updated);
+    }, 250),
+  );
+  return true;
+}
+
+// A compact ‹ 30m › duration stepper for a task row. Displays the exact
+// duration (full value, not bucketed — that's the queue card's job) and the
+// ‹ / › buttons step it down/up (the touch equivalent of the L / M keys).
+function makeDurationChip(task) {
+  const chip = document.createElement("div");
+  chip.className = "ti-duration";
+
+  const less = document.createElement("button");
+  less.type = "button";
+  less.className = "ti-dur-step";
+  less.textContent = "‹";
+  less.title = "Less time (L)";
+  less.setAttribute("aria-label", "Less time");
+
+  const val = document.createElement("span");
+  val.className = "ti-dur-val";
+  val.textContent = formatDuration(effectiveDuration(task));
+
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "ti-dur-step";
+  more.textContent = "›";
+  more.title = "More time (M)";
+  more.setAttribute("aria-label", "More time");
+
+  for (const [btn, dir] of [
+    [less, -1],
+    [more, 1],
+  ]) {
+    btn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      btn.disabled = true;
+      // upsertTaskLocal re-renders the list via the bus, replacing this row.
+      try {
+        await stepTaskDuration(task.id, dir);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  chip.append(less, val, more);
+  return chip;
 }
 
 // scheduleChip removed — Tier 2 #12 replaced the chip-with-× pattern with
@@ -368,25 +493,31 @@ function scheduleSub(task) {
 }
 
 // Human-readable cadence for a task's recurSchedule, e.g. "weekdays at
-// 9:00", "every day at 14:30", or "Mon, Wed at 8:00". Returns "" when the
+// 9:00", "every day at 14:30", "Mon, Wed at 8:00" (timed), or just "weekdays"
+// / "Mon, Wed" when un-timed (no startMin — Queue-only). Returns "" when the
 // task has no recurSchedule. Used for the recur sub-line and tooltips.
 const WEEKDAY_SET = ["mon", "tue", "wed", "thu", "fri"];
 function describeRecur(task) {
   const rs = task && task.recurSchedule;
   if (!rs) return "";
-  const at = `at ${fmtMin(rs.startMin)}`;
+  const at = rs.startMin == null ? "" : ` at ${fmtMin(rs.startMin)}`;
   const days = rs.days;
-  if (!Array.isArray(days) || days.length === 0) return `every day ${at}`;
-  const set = new Set(days);
-  const isWeekdays =
-    set.size === 5 && WEEKDAY_SET.every((d) => set.has(d));
-  if (isWeekdays) return `weekdays ${at}`;
-  // Preserve a Mon→Sun reading order regardless of stored order.
-  const ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
-  const labels = ORDER.filter((d) => set.has(d)).map(
-    (d) => d.charAt(0).toUpperCase() + d.slice(1),
-  );
-  return `${labels.join(", ")} ${at}`;
+  let cadence;
+  if (!Array.isArray(days) || days.length === 0) {
+    cadence = "every day";
+  } else {
+    const set = new Set(days);
+    if (set.size === 5 && WEEKDAY_SET.every((d) => set.has(d))) {
+      cadence = "weekdays";
+    } else {
+      // Preserve a Mon→Sun reading order regardless of stored order.
+      const ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+      cadence = ORDER.filter((d) => set.has(d))
+        .map((d) => d.charAt(0).toUpperCase() + d.slice(1))
+        .join(", ");
+    }
+  }
+  return cadence + at;
 }
 
 function buildAttachSection(title, options) {
@@ -630,6 +761,9 @@ function renderTaskRow(task, opts = {}) {
     rec.textContent = "↻ " + describeRecur(task);
     titleSlot.appendChild(rec);
   }
+  // Duration stepper — lets you size a task during triage (the L/M touch
+  // twin). Hidden in the snoozed view, which stays read-only-ish.
+  if (!snoozedView) titleSlot.appendChild(makeDurationChip(task));
   if (snoozedView && task.snoozedUntil) {
     const wake = document.createElement("div");
     wake.className = "ti-subline ti-wake";
@@ -820,7 +954,7 @@ function positionPopover(pop, anchorBtn) {
 let openSnoozePopoverEl = null;
 let openSnoozeOutsideHandler = null;
 
-function closeSnoozePopover() {
+export function closeSnoozePopover() {
   if (openSnoozePopoverEl) openSnoozePopoverEl.remove();
   openSnoozePopoverEl = null;
   if (openSnoozeOutsideHandler) {
@@ -829,7 +963,7 @@ function closeSnoozePopover() {
   }
 }
 
-function openSnoozePopover(taskId, anchorBtn) {
+export function openSnoozePopover(taskId, anchorBtn) {
   closeSnoozePopover();
 
   const pop = document.createElement("div");
@@ -936,10 +1070,31 @@ function openRecurPopover(taskId, anchorBtn) {
   const timeInput = document.createElement("input");
   timeInput.type = "time";
   timeInput.className = "recur-time-input";
-  timeInput.value = minToTimeInput(rs ? rs.startMin : 9 * 60);
+  timeInput.value = minToTimeInput(rs && rs.startMin != null ? rs.startMin : 9 * 60);
   timeRow.appendChild(timeLabel);
   timeRow.appendChild(timeInput);
   pop.appendChild(timeRow);
+
+  // "No specific time" → an un-timed recurrence (Stage 4): no clock time, no
+  // timeline projection; the task shows in the Queue on its days and is
+  // hidden on off-days. Seeded checked if the task already has an un-timed
+  // recurSchedule (startMin null). Disables the time input while on.
+  const noTimeRow = document.createElement("label");
+  noTimeRow.className = "recur-notime-row";
+  const noTime = document.createElement("input");
+  noTime.type = "checkbox";
+  noTime.className = "recur-notime";
+  noTime.checked = !!(rs && rs.startMin == null);
+  const noTimeLabel = document.createElement("span");
+  noTimeLabel.textContent = "No specific time (queue only)";
+  noTimeRow.append(noTime, noTimeLabel);
+  pop.appendChild(noTimeRow);
+  const syncTimeEnabled = () => {
+    timeInput.disabled = noTime.checked;
+    timeRow.style.opacity = noTime.checked ? "0.45" : "";
+  };
+  noTime.addEventListener("change", syncTimeEnabled);
+  syncTimeEnabled();
 
   // Weekday chips for the "selected days" cadence. Seeded from the existing
   // days (if the task already has a custom set).
@@ -963,14 +1118,21 @@ function openRecurPopover(taskId, anchorBtn) {
   pop.appendChild(chipRow);
 
   const applySchedule = async (days) => {
-    const startMin = timeInputToMin(timeInput.value);
-    if (startMin === null) {
-      showToast("Enter a valid time");
-      return;
+    let recurSchedule;
+    if (noTime.checked) {
+      // Un-timed: queue-only recurrence on the chosen days.
+      recurSchedule = { startMin: null, durationMin: null, days: days || null };
+    } else {
+      const startMin = timeInputToMin(timeInput.value);
+      if (startMin === null) {
+        showToast("Enter a valid time");
+        return;
+      }
+      recurSchedule = { startMin, durationMin, days: days || null };
     }
     const updated = await patchTaskRecord(taskId, {
       recurring: true,
-      recurSchedule: { startMin, durationMin, days: days || null },
+      recurSchedule,
     });
     if (!updated) {
       showToast("Save failed");

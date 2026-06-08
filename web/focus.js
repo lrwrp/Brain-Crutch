@@ -37,7 +37,29 @@ import {
   focusRestartBtn,
   focusCloseBtn,
   focusDoneDetailEl,
+  focusTaskEl,
+  focusTaskPriorityEl,
+  focusTaskDueEl,
+  focusTaskNotesBtn,
+  focusTaskTitleEl,
+  focusTaskNotesEl,
+  focusSnoozeBtn,
+  focusTaskCompleteBtn,
 } from "./dom.js";
+import {
+  currentTimelineTask,
+  getTask,
+  priorityOf,
+  upsertTaskLocal,
+} from "./state.js";
+import { patchTaskRecord } from "./api.js";
+import { plaintextPreview } from "./markdown.js";
+import { formatDueDate } from "./time.js";
+import { showToast } from "./toast.js";
+import { bus, EVENTS } from "./events.js";
+import { openNotesReader } from "./notes-read.js";
+import { openNotesEditor } from "./notes.js";
+import { openSnoozePopover, closeSnoozePopover } from "./triage.js";
 
 const MIN_MINUTES = 1;
 const MAX_MINUTES = 45;
@@ -55,6 +77,79 @@ let prerollIndex = 0;
 let prerollTimer = null;
 let tickTimer = null;
 let endAt = 0;
+let boundTaskId = null; // the timeline task surfaced during a running session
+
+// ----- Bound task card (Stage 5) ---------------------------------------
+//
+// While a session runs, surface the task whose block sits under the now-line
+// (state.currentTimelineTask) as a card with Snooze / Complete + notes. As the
+// clock advances the bound task can change (one block ends, the next begins),
+// so the tick re-evaluates and re-paints when the id changes; the event bus
+// keeps the card fresh when the same task is edited elsewhere.
+
+function paintBoundTask() {
+  const task = boundTaskId ? getTask(boundTaskId) : null;
+  if (!task) {
+    boundTaskId = null;
+    focusTaskEl.classList.add("hidden");
+    return;
+  }
+  focusTaskPriorityEl.dataset.priority = priorityOf(task);
+  focusTaskPriorityEl.textContent = priorityOf(task);
+
+  const due = formatDueDate(task.dueDate);
+  if (due.text) {
+    focusTaskDueEl.className = `queue-due due-date due-${due.urgency}`;
+    focusTaskDueEl.textContent = due.text;
+    focusTaskDueEl.hidden = false;
+  } else {
+    focusTaskDueEl.hidden = true;
+    focusTaskDueEl.textContent = "";
+  }
+
+  focusTaskTitleEl.textContent = task.title;
+
+  if (task.notes) {
+    focusTaskNotesEl.textContent = plaintextPreview(task.notes);
+    focusTaskNotesEl.hidden = false;
+  } else {
+    focusTaskNotesEl.hidden = true;
+    focusTaskNotesEl.textContent = "";
+  }
+
+  focusTaskEl.classList.remove("hidden");
+}
+
+// Re-bind to whatever is scheduled now and repaint. paintBoundTask only sets
+// text on the static card, so a 250 ms repaint can't clobber an open snooze
+// popover (anchored to the unchanged button) — we only tear that down when the
+// bound id actually changes.
+function refreshBoundTask() {
+  if (state !== "running") return;
+  const next = currentTimelineTask();
+  const nextId = next ? next.id : null;
+  if (nextId !== boundTaskId) {
+    boundTaskId = nextId;
+    closeSnoozePopover(); // anchor changed; drop any stale popover
+  }
+  paintBoundTask();
+}
+
+async function completeBoundTask() {
+  if (state !== "running" || !boundTaskId) return;
+  const updated = await patchTaskRecord(boundTaskId, { done: true });
+  if (!updated) {
+    showToast("Save failed");
+    return;
+  }
+  upsertTaskLocal(updated); // bus refresh → triage/timeline/wins
+  refreshBoundTask(); // done task no longer qualifies → hide or bind next
+}
+
+function snoozeBoundTask() {
+  if (state !== "running" || !boundTaskId) return;
+  openSnoozePopover(boundTaskId, focusSnoozeBtn);
+}
 
 // ----- Helpers ---------------------------------------------------------
 
@@ -157,6 +252,8 @@ function startRunning(minutes) {
   endAt = Date.now() + minutes * 60 * 1000;
   showOnlyState(focusStateRunningEl);
   paintClock();
+  boundTaskId = null;
+  refreshBoundTask(); // bind to the task under the now-line, if any
   // 250 ms tick so the seconds digit feels responsive. Cheap.
   tickTimer = setInterval(() => {
     if (state !== "running") return;
@@ -168,6 +265,7 @@ function startRunning(minutes) {
       return;
     }
     paintClock();
+    refreshBoundTask(); // the current task can change as the clock advances
   }, 250);
 }
 
@@ -186,9 +284,32 @@ function enterDone(elapsedMinutes) {
 export function cancelFocus() {
   // From any state → back to idle. Hide everything, stop timers.
   stopAllTimers();
+  closeSnoozePopover();
   focusOverlayEl.classList.add("hidden");
+  focusTaskEl.classList.add("hidden");
+  boundTaskId = null;
   closeLauncher();
   state = "idle";
+}
+
+// Keyboard routing while a focus session owns the screen (called from
+// keyboard.js). Only acts when a task is bound during the running state;
+// otherwise it swallows keys so the focus overlay stays modal.
+export function handleFocusKey(e) {
+  if (state !== "running" || !boundTaskId) return;
+  if (e.key === "c" || e.key === "C") {
+    e.preventDefault();
+    completeBoundTask();
+  } else if (e.key === "s" || e.key === "S") {
+    e.preventDefault();
+    snoozeBoundTask();
+  } else if (e.key === "r" || e.key === "R") {
+    e.preventDefault();
+    openNotesReader(boundTaskId);
+  } else if (e.key === "e" || e.key === "E") {
+    e.preventDefault();
+    openNotesEditor(boundTaskId);
+  }
 }
 
 function restart() {
@@ -250,4 +371,17 @@ export function initFocusTimer() {
   focusCancelBtn.addEventListener("click", cancelFocus);
   focusRestartBtn.addEventListener("click", restart);
   focusCloseBtn.addEventListener("click", cancelFocus);
+
+  // Bound-task card actions (Stage 5).
+  focusTaskCompleteBtn.addEventListener("click", completeBoundTask);
+  focusSnoozeBtn.addEventListener("click", snoozeBoundTask);
+  focusTaskNotesBtn.addEventListener("click", () => {
+    if (state === "running" && boundTaskId) openNotesReader(boundTaskId);
+  });
+
+  // Keep the bound card fresh when its task is edited elsewhere (notes,
+  // priority, duration) or when the day view rebuilds. The id-stability guard
+  // in refreshBoundTask makes these cheap no-ops when nothing relevant moved.
+  bus.on(EVENTS.TASK_CHANGED, refreshBoundTask);
+  bus.on(EVENTS.DAY_CHANGED, refreshBoundTask);
 }

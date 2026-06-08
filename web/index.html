@@ -99,7 +99,7 @@
           <div class="kbd-hint" title="Press \ then n or t to capture">
             <span><kbd>\</kbd><kbd>n</kbd> inbox</span>
             <span><kbd>\</kbd><kbd>t</kbd> task</span>
-            <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>c</kbd> done · <kbd>r</kbd>/<kbd>e</kbd> notes</span>
+            <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> · <kbd>L</kbd>/<kbd>M</kbd> time · <kbd>c</kbd> done · <kbd>r</kbd>/<kbd>e</kbd> notes</span>
           </div>
         </section>
       </aside>
@@ -211,6 +211,27 @@
         </div>
         <div id="focus-state-running" class="focus-state focus-state-running hidden">
           <div id="focus-clock" class="focus-clock">05:00</div>
+          <!-- The task scheduled under the now-line, bound to this focus
+               session (granularity epic #25, Stage 5). Hidden when nothing is
+               scheduled for the current moment. -->
+          <div id="focus-task" class="focus-task hidden">
+            <div class="focus-task-card">
+              <div class="focus-task-meta">
+                <span id="focus-task-priority" class="queue-priority"></span>
+                <span id="focus-task-due" class="queue-due"></span>
+                <button id="focus-task-notes-btn" class="queue-notes-btn" type="button" title="Notes (r read · e edit)" aria-label="Notes">📝</button>
+              </div>
+              <h2 id="focus-task-title" class="focus-task-title"></h2>
+              <div id="focus-task-notes" class="queue-notes"></div>
+            </div>
+            <div class="focus-task-actions">
+              <button id="focus-snooze-btn" class="btn focus-action" type="button" title="Snooze (s)">💤 Snooze</button>
+              <button id="focus-task-complete-btn" class="btn primary focus-action" type="button" title="Complete (c)">✓ Complete</button>
+            </div>
+            <div class="focus-task-hint">
+              <kbd>c</kbd> complete · <kbd>s</kbd> snooze · <kbd>r</kbd>/<kbd>e</kbd> notes
+            </div>
+          </div>
           <button id="focus-cancel-btn" class="btn focus-action" type="button">Cancel</button>
         </div>
         <div id="focus-state-done" class="focus-state focus-state-done hidden">
@@ -230,21 +251,27 @@
 
         <div id="queue-state-running" class="queue-state">
           <div class="queue-progress" id="queue-progress"></div>
-          <div class="queue-card">
-            <div class="queue-card-meta">
-              <span id="queue-priority" class="queue-priority"></span>
-              <span id="queue-due" class="queue-due"></span>
+          <div class="queue-stack">
+            <!-- Peek headers for upcoming tasks (title + size), nearest just
+                 above the active card; filled by queue.js. -->
+            <div id="queue-peek" class="queue-peek"></div>
+            <div class="queue-card">
+              <div class="queue-card-meta">
+                <span id="queue-priority" class="queue-priority"></span>
+                <span id="queue-duration" class="queue-duration"></span>
+                <span id="queue-due" class="queue-due"></span>
+                <button id="queue-notes-btn" class="queue-notes-btn" type="button" title="Notes (r read · e edit)" aria-label="Notes">📝</button>
+              </div>
+              <h2 id="queue-title" class="queue-title"></h2>
+              <div id="queue-notes" class="queue-notes"></div>
             </div>
-            <h2 id="queue-title" class="queue-title"></h2>
-            <div id="queue-schedule" class="queue-schedule"></div>
-            <div id="queue-notes" class="queue-notes"></div>
           </div>
           <div class="queue-actions">
             <button id="queue-skip-btn" class="btn queue-action" type="button" title="Skip — send to back (s)">→ Skip</button>
             <button id="queue-complete-btn" class="btn primary queue-action" type="button" title="Complete (c)">✓ Complete</button>
           </div>
           <div class="queue-hint">
-            <kbd>c</kbd> complete · <kbd>s</kbd> skip · <kbd>Esc</kbd> exit
+            <kbd>c</kbd> complete · <kbd>s</kbd> skip · <kbd>r</kbd>/<kbd>e</kbd> notes · <kbd>Esc</kbd> exit
           </div>
         </div>
 

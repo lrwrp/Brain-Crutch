@@ -51,11 +51,13 @@ export function closeNotesReader() {
 }
 
 // Close the reader, open the editor for the same task. Used by the [Edit]
-// button and the `e` keyboard shortcut while the reader is open.
+// button and the `e` keyboard shortcut while the reader is open. The editor is
+// told to re-open the reader on close, so Esc/save from the editor goes back to
+// the reader (read → edit → back to read), not all the way out.
 export function editFromReader() {
   const id = activeTaskId;
   closeNotesReader();
-  if (id) openNotesEditor(id);
+  if (id) openNotesEditor(id, { onClose: () => openNotesReader(id) });
 }
 
 export function initNotesReader() {

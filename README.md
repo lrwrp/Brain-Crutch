@@ -80,6 +80,7 @@ timeline as a translucent backdrop. The assistant never writes back.
 - `c` — toggle done on the selected task
 - `w` / `s` — nudge selected task earlier / later
 - `a` / `d` — increase / decrease selected task priority (low/medium/high)
+- `l` / `m` — less / more time (size the selected task in 5-min steps)
 - `r` / `e` — read / edit selected task's notes
 
 ## General functionality
@@ -97,6 +98,17 @@ You can add notes, and tasks, and notes to tasks, make tasks from notes.
 For tasks you want repeat, like whatever, exercise, music practice, staring into the void,
 you can mark them as repeating.  You get credit for completing them but they will still be
 there tomorrow to do again. Sisyphus would be proud.
+
+Repeating tasks can have a set time (they land on the timeline) or no set time at all —
+those just show up in the Queue on the days you picked, no clock involved.
+
+The Queue is where the un-timed stuff lives: anything you haven't dropped on the timeline.
+It hands you one card at a time so you're not staring at a list. Give a task a size with
+`l` / `m` (less / more time, 5-minute steps) so a five-minute thing and a two-hour thing
+don't look the same.
+
+Start a focus timer and, if something's scheduled for right now, it rides along on the
+timer screen so you can finish it or snooze it without leaving.
 
 For the things you know you're not going to get to, you can snooze them for a period of 
 time and they will go into a snoozed task section.  

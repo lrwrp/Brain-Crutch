@@ -23,18 +23,23 @@ import { showToast } from "./toast.js";
 
 let activeTaskId = null;
 let originalNotes = "";
+// Optional callback fired when the editor closes (save, cancel, or ×). The
+// reader's [Edit] handoff passes one that re-opens the reader, so Esc/save from
+// an editor reached via "read → edit" goes *back to read*, not straight out.
+let onCloseCb = null;
 
 export function isNotesEditorOpen() {
   return !notesModalEl.classList.contains("hidden");
 }
 
-export function openNotesEditor(taskId) {
+export function openNotesEditor(taskId, { onClose = null } = {}) {
   const task = getTask(taskId);
   if (!task) {
     showToast("Task gone");
     return;
   }
   activeTaskId = taskId;
+  onCloseCb = onClose;
   originalNotes = task.notes || "";
   notesModalTaskTitleEl.textContent = task.title;
   notesModalInputEl.value = originalNotes;
@@ -47,10 +52,22 @@ export function openNotesEditor(taskId) {
   });
 }
 
-export function closeNotesEditor() {
+// Hide the editor without running the onClose callback — used by the save
+// path, since saving means "done", so we exit fully rather than bouncing back
+// to the reader.
+function hideEditor() {
   notesModalEl.classList.add("hidden");
   activeTaskId = null;
   originalNotes = "";
+  onCloseCb = null;
+}
+
+// Cancel/close the editor (Esc, ×, or a no-op Enter). Runs onClose, so an
+// editor reached via "read → edit" returns to the reader.
+export function closeNotesEditor() {
+  const cb = onCloseCb;
+  hideEditor();
+  if (cb) cb();
 }
 
 async function commit() {
@@ -73,7 +90,7 @@ async function commit() {
   }
   upsertTaskLocal(updated);
   showToast("Notes saved");
-  closeNotesEditor();
+  hideEditor(); // saved → exit fully (don't bounce back to the reader)
 }
 
 export function initNotesEditor() {
@@ -81,10 +98,10 @@ export function initNotesEditor() {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       commit();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      closeNotesEditor();
     }
+    // Escape is handled by the global Escape ladder (keyboard.js) so closing
+    // pops exactly one layer — e.g. editor → reader → queue — without a second
+    // handler also firing and over-closing.
   });
   document.querySelectorAll("[data-notes-close]").forEach((el) => {
     el.addEventListener("click", () => closeNotesEditor());

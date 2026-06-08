@@ -466,6 +466,53 @@ body {
   gap: 12px;
 }
 
+/* ----- Focus bound-task card (Stage 5) -----
+   The task under the now-line, surfaced during a running session. Reuses the
+   queue card's chip classes (.queue-priority / .queue-due / .queue-notes /
+   .queue-notes-btn) for a consistent look. */
+.focus-task {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: min(420px, 86vw);
+}
+.focus-task.hidden {
+  display: none;
+}
+.focus-task-card {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+.focus-task-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.focus-task-meta .queue-notes-btn {
+  margin-left: auto;
+}
+.focus-task-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.25;
+}
+.focus-task-actions {
+  display: flex;
+  gap: 12px;
+}
+.focus-task-hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 /* ----- Focus queue overlay (one task at a time) ----- */
 
 .queue-overlay {
@@ -523,7 +570,58 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* The stack: upcoming peek headers flow down toward the active card at the
+   bottom. */
+.queue-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.queue-peek {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Sit the nearest peek header just behind the active card's top edge. */
+  margin-bottom: -6px;
+  padding: 0 10px;
+}
+.queue-peek:empty {
+  display: none;
+}
+.queue-peek-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 6px 14px;
+  opacity: 0.6;
+}
+.queue-peek-title {
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.queue-peek-dur {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+.queue-peek-more {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding-bottom: 2px;
+}
+
 .queue-card {
+  position: relative; /* above the peek headers tucked under its top edge */
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -531,6 +629,20 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.queue-notes-btn {
+  margin-left: auto; /* push to the right edge of the meta row */
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  opacity: 0.85;
+}
+.queue-notes-btn:hover {
+  opacity: 1;
 }
 
 .queue-card-meta {
@@ -563,6 +675,17 @@ body {
 .queue-due {
   font-size: 12px;
   font-weight: 600;
+}
+
+/* Size cue on the queue card — bucketed duration ("< 5" / "30m" / "> 60"). */
+.queue-duration {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 
 .queue-title {
@@ -1461,6 +1584,39 @@ kbd {
 .ti-wake {
   color: var(--accent);
 }
+
+/* Duration stepper on a task row: ‹ 30m › — display the exact duration with
+   tap targets either side (the touch twin of the L/M keys). */
+.ti-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.ti-dur-step {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  width: 20px;
+  height: 18px;
+  border-radius: 5px;
+  cursor: pointer;
+  padding: 0;
+}
+.ti-dur-step:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.ti-dur-val {
+  min-width: 34px;
+  text-align: center;
+  color: var(--text);
+}
 /* Rolled-over subline (Tier 2 #6): the task was scheduled on a past day
    and didn't get done. Warn-yellow matches the due-soon palette so it
    reads as "this slipped" without screaming overdue-red. */
@@ -1674,6 +1830,9 @@ kbd {
   max-height: calc(100vh - 16px);
   overflow-y: auto;
   animation: pop-in 120ms ease;
+  /* Above the focus/queue overlays (z 100) so the snooze popover is usable
+     when opened from the focus bound-task card (Stage 5). */
+  z-index: 130;
 }
 .snooze-option {
   background: transparent;
@@ -1724,6 +1883,18 @@ kbd {
   font-family: inherit;
   font-size: 13px;
   padding: 4px 6px;
+}
+.recur-notime-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 8px;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.recur-notime {
+  cursor: pointer;
 }
 .recur-chips {
   display: flex;
@@ -2083,7 +2254,9 @@ kbd {
 .modal {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  /* Above the focus/queue overlays (z-index 100) so the notes reader/editor
+     can open from within the queue. */
+  z-index: 120;
   display: flex;
   align-items: flex-start;
   justify-content: center;
