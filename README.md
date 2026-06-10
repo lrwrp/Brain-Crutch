@@ -33,6 +33,13 @@ for a different user if you enjoy misery.
 It runs on http on localhost by default, you can change it by editing server.py.
 You can even add a cert and run https if you like, but why?
 
+If you do serve it beyond localhost, note the server now rejects unknown Host
+headers (a DNS-rebinding guard). localhost and Tailscale (`*.ts.net`) work out
+of the box; for anything else set `ADHD_ALLOWED_HOSTS=myhostname,192.168.1.50`
+before launching. If you get a `400 Invalid host header`, that's this.
+The recommended way to reach it from other devices is `tailscale serve` —
+the app stays bound to localhost and you get https for free.
+
 
 ## Quickstart
 

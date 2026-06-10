@@ -83,6 +83,33 @@ def test_chip_steppers_adjust_and_persist(page, live_server):
 
 
 @pytest.mark.e2e
+def test_m_growth_clamped_by_sticky_projection(page, live_server):
+    """Keyboard growth must respect sticky-projected neighbors, same as
+    mouse-resize does (review #5): a block at 10:00–10:30 with a recurring
+    projection landing at 10:30 has no room to grow — M is a no-op."""
+    import datetime as _dt
+
+    page.goto(live_server.url)
+    today = _dt.date.today().isoformat()
+    _make_task(
+        page,
+        title="grow me",
+        schedule={"date": today, "startMin": 600, "durationMin": 30},
+    )
+    _make_task(
+        page,
+        title="sticky neighbor",
+        recurSchedule={"startMin": 630, "durationMin": 30, "days": None},
+    )
+    page.reload()
+
+    row = page.locator("#tasks-list .triage-item", has_text="grow me")
+    row.locator(".ti-title .text").click()
+    page.keyboard.press("m")  # would be 30 -> 35, but the projection caps at 30
+    expect(row.locator(".ti-dur-val")).to_have_text("30m")
+
+
+@pytest.mark.e2e
 def test_less_floors_at_sub_five_bucket(page, live_server):
     page.goto(live_server.url)
     _make_task(page)

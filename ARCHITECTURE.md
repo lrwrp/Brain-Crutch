@@ -63,8 +63,8 @@ A single Python FastAPI process serves a plain-HTML/ES-modules SPA on `http://lo
 │   └── days/              # legacy per-day files (only on pre-Phase-4 installs)
 └── tests/
     ├── conftest.py        # tmp_data_dir, client, factory fixtures
-    ├── unit/              # 166 tests via FastAPI TestClient (< 2 s)
-    └── e2e/               # 154 tests via pytest-playwright + uvicorn subprocess
+    ├── unit/              # 179 tests via FastAPI TestClient (< 2 s)
+    └── e2e/               # 164 tests via pytest-playwright + uvicorn subprocess
 ```
 
 ## Data model
@@ -365,8 +365,8 @@ Three layers, sharply different in cost and value:
 
 | Layer | Tool | Lives in | Run | What it catches |
 |---|---|---|---|---|
-| **Server unit / integration** | `pytest` + FastAPI `TestClient` | `tests/unit/` (166 tests) | `make test` | Endpoint contracts, validation, persistence, migration chain, calendar parsing, activity log |
-| **End-to-end happy paths** | `pytest-playwright` | `tests/e2e/` (163 tests) | `make test-e2e` | Drag/resize, modals, slash-commands, layout (incl. mobile view switcher), task-row interactions, duration control, focus timer, focus queue, focus-mode task binding, un-timed recurrence, momentum gauge, calendar overlay |
+| **Server unit / integration** | `pytest` + FastAPI `TestClient` | `tests/unit/` (179 tests) | `make test` | Endpoint contracts, validation, persistence, migration chain, calendar parsing, activity log |
+| **End-to-end happy paths** | `pytest-playwright` | `tests/e2e/` (164 tests) | `make test-e2e` | Drag/resize, modals, slash-commands, layout (incl. mobile view switcher), task-row interactions, duration control, focus timer, focus queue, focus-mode task binding, un-timed recurrence, momentum gauge, calendar overlay |
 | **Smoke (dev-time)** | `curl` + Claude Preview MCP | n/a | ad-hoc | Quick verification while iterating; not committed |
 
 **Isolation:**
@@ -429,6 +429,7 @@ History of shape-changing events. Things that aren't obvious from the current co
 - **2026-06-01 — #23 momentum gauge + #24 inbox bar / topbar rework.** Retired the brittle `🔥 streak` for a decaying "momentum" ember + last-~10-weeks mosaic (`web/momentum.js`), backed by a new self-contained `data/activity.json` + `GET`/`POST /api/activity` (the first store deliberately kept *out* of the versioned task/inbox schema chain). Added an inline Inbox capture bar (touch-reachable quick capture). Topbar reworked: Focus pill moved back beside `#wins` in a `.topbar-actions` row (same shape), priority stars collapsed to a single capped row beneath, and the momentum ember placed on the left next to the date; `.timeline-head` reverted from the 3-column "center Focus" grid to a flex.
 - **2026-06-05 — #25 granularity epic, Stages 1–3 (branch `duration-control`, not yet merged).** Reframed "finer timeline granularity" into a model where **timed → timeline, un-timed → queue**, and *size* (not a 3× canvas) is the real need. Stage 1: L/M duration control (`stepDuration`/`formatDuration`/`formatDurationBucket` in `time.js`; `stepTaskDuration` optimistic+debounced in `triage.js`; row stepper + keys). Stage 2: the Queue narrowed to the un-timed pile (`isQueueable`) with a bucketed size cue. Stage 3: card-stack Queue (peek headers + `+N` + notes on the active card). Plus an Escape-stack fix — the global ladder now pops the topmost overlay first (notes z 120 above queue/focus z 100), the editor lost its own Esc handler, and notes-overlay keys are handled before the queue's key routing; `editFromReader` returns to the reader via an `onClose` callback. The decided-but-unbuilt design (Stages 4 un-timed recurrence, 5 focus-mode binding) lives in `~/.claude/plans/moonlit-zooming-kurzweil.md`.
 - **2026-06-07 — #25 granularity epic, Stages 4–5 (branch `duration-control`; epic now complete).** Stage 4: un-timed (days-only) recurrence — `recurSchedule.startMin`/`durationMin` nullable (server `_normalize_time` validator), `state.recurLandsOn` + derived `isUntimedRecurHiddenOn` off-day hide, `projectedScheduleFor` null-start guard, `isQueueable` consults the hide, recur popover "No specific time (queue only)" checkbox. Stage 5: focus-mode task binding — `state.currentTimelineTask()` finds the block under the now-line; the running focus overlay surfaces it as a Snooze/Complete card (queue-card chip classes) with 📝 + `c`/`s`/`r`/`e` via `handleFocusKey`, re-binding on tick + bus events; snooze popover exported from `triage.js`. The whole epic (Stages 1–5 + Escape-stack fix) was built as one uncommitted batch, then committed together; GitHub sync of the epic is still deferred.
+- **2026-06-09 — LAN-hardening batch (code-review follow-ups).** The app is now sometimes reachable beyond loopback (via Tailscale), so: (1) `TrustedHostMiddleware` rejects foreign Host headers — the cheap DNS-rebinding guard; allowlist = loopback + `*.ts.net` (Tailscale serve) + an `ADHD_ALLOWED_HOSTS` env var for anything else. (2) `_read_activity` tolerates an empty/corrupt `activity.json` (`JSONDecodeError` no longer 500s the momentum gauge). (3) A module-level `_WRITE_LOCK` serializes every read-modify-write of the JSON stores — two clients (phone + desktop) PATCHing concurrently can no longer drop an update; reads stay lock-free since the atomic replace means no torn files. (4) The keyboard `M` growth clamp (`maxDurationForScheduled`) now counts sticky-projected blocks as neighbors, matching what mouse-resize already enforced — growing via keyboard can no longer silently swallow a projection. `tests/unit/test_hardening.py` (9 tests: host allow/reject, corrupt-file recovery, threaded concurrency) + an e2e projection-clamp regression; `conftest`'s TestClient now presents `Host: localhost`.
 
 ## Planned changes
 

@@ -7,12 +7,16 @@ Then open http://localhost:1440
 from __future__ import annotations
 
 import datetime as _dt
+import json
+import os
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -140,6 +144,26 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ADHD assistant", docs_url=None, redoc_url=None, lifespan=lifespan)
 
+# Reject requests whose Host header isn't one of ours. This is the cheap
+# defence against DNS rebinding: a malicious page rebinds its hostname to
+# this server's IP and the victim's browser then reads the API as if
+# same-origin — but the request arrives with the attacker's Host, which this
+# middleware 400s. Defaults cover loopback + Tailscale serve (`*.ts.net`);
+# anything else (a MagicDNS short name, a LAN hostname) goes in the
+# ADHD_ALLOWED_HOSTS env var, comma-separated. Port is ignored in the match.
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "*.ts.net"]
+_extra_hosts = os.environ.get("ADHD_ALLOWED_HOSTS", "")
+ALLOWED_HOSTS += [h.strip() for h in _extra_hosts.split(",") if h.strip()]
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
+
+# Serializes every read-modify-write of the JSON stores. Handlers are sync
+# (FastAPI runs them on a threadpool), so two concurrent PATCHes can otherwise
+# interleave load→mutate→save and silently drop one update — a real case once
+# a phone and a desktop are both connected. Plain reads stay lock-free:
+# write_json's atomic replace means a reader sees the old file or the new
+# one, never a torn write.
+_WRITE_LOCK = threading.Lock()
+
 
 @app.get("/api/inbox")
 def get_inbox() -> dict:
@@ -167,31 +191,34 @@ def post_inbox(payload: CaptureIn) -> InboxItem:
         title=None,
         createdAt=time.time(),
     )
-    data = load_versioned(INBOX_FILE)
-    data.setdefault("items", []).append(item.model_dump())
-    save_versioned(INBOX_FILE, data)
+    with _WRITE_LOCK:
+        data = load_versioned(INBOX_FILE)
+        data.setdefault("items", []).append(item.model_dump())
+        save_versioned(INBOX_FILE, data)
     return item
 
 
 @app.delete("/api/inbox/{item_id}")
 def delete_inbox_item(item_id: str) -> dict:
-    data = load_versioned(INBOX_FILE)
-    for it in data.setdefault("items", []):
-        if it["id"] == item_id and _is_live(it):
-            it["deletedAt"] = time.time()
-            save_versioned(INBOX_FILE, data)
-            return {"ok": True}
+    with _WRITE_LOCK:
+        data = load_versioned(INBOX_FILE)
+        for it in data.setdefault("items", []):
+            if it["id"] == item_id and _is_live(it):
+                it["deletedAt"] = time.time()
+                save_versioned(INBOX_FILE, data)
+                return {"ok": True}
     raise HTTPException(status_code=404, detail="inbox item not found")
 
 
 @app.post("/api/inbox/{item_id}/restore", response_model=InboxItem)
 def restore_inbox_item(item_id: str) -> InboxItem:
-    data = load_versioned(INBOX_FILE)
-    for it in data.setdefault("items", []):
-        if it["id"] == item_id:
-            it["deletedAt"] = None
-            save_versioned(INBOX_FILE, data)
-            return InboxItem(**it)
+    with _WRITE_LOCK:
+        data = load_versioned(INBOX_FILE)
+        for it in data.setdefault("items", []):
+            if it["id"] == item_id:
+                it["deletedAt"] = None
+                save_versioned(INBOX_FILE, data)
+                return InboxItem(**it)
     raise HTTPException(status_code=404, detail="inbox item not found")
 
 
@@ -200,10 +227,11 @@ def restore_inbox_item(item_id: str) -> InboxItem:
 
 def _read_activity() -> dict:
     """Activity log as {"version": 1, "days": {date: count}}, tolerant of a
-    missing/empty file."""
+    missing, empty, or corrupt file (an unreadable log shouldn't 500 the
+    momentum gauge — it just starts over)."""
     try:
         data = read_json(ACTIVITY_FILE)
-    except FileNotFoundError:
+    except (FileNotFoundError, json.JSONDecodeError):
         data = {}
     days = data.get("days")
     if not isinstance(days, dict):
@@ -221,11 +249,12 @@ def post_activity() -> dict:
     """Record one unit of activity for the server's local 'today'. Any app
     open or meaningful action calls this; the per-day count drives the
     momentum gauge + mosaic."""
-    data = _read_activity()
-    today = _dt.date.today().isoformat()
-    days = data["days"]
-    days[today] = int(days.get(today, 0)) + 1
-    write_json(ACTIVITY_FILE, data)
+    with _WRITE_LOCK:
+        data = _read_activity()
+        today = _dt.date.today().isoformat()
+        days = data["days"]
+        days[today] = int(days.get(today, 0)) + 1
+        write_json(ACTIVITY_FILE, data)
     return {"date": today, "count": days[today]}
 
 
@@ -442,103 +471,107 @@ def create_task(payload: TaskCreateIn) -> TaskRecord:
         updatedAt=now,
         completedAt=now if payload.done else None,
     )
-    data = load_versioned(TASKS_FILE)
-    data.setdefault("items", []).append(rec.model_dump())
-    save_versioned(TASKS_FILE, data)
+    with _WRITE_LOCK:
+        data = load_versioned(TASKS_FILE)
+        data.setdefault("items", []).append(rec.model_dump())
+        save_versioned(TASKS_FILE, data)
     return rec
 
 
 @app.patch("/api/tasks/{task_id}", response_model=TaskRecord)
 def patch_task(task_id: str, payload: TaskPatchIn) -> TaskRecord:
-    data = load_versioned(TASKS_FILE)
-    fields = payload.model_fields_set
-    for it in data.setdefault("items", []):
-        if it["id"] == task_id and _is_live(it):
-            _normalize_task(it)
-            if "title" in fields:
-                t = (payload.title or "").strip()
-                if not t:
-                    raise HTTPException(status_code=400, detail="empty title")
-                it["title"] = t
-            if "priority" in fields:
-                validate_priority(payload.priority)
-                it["priority"] = payload.priority
-            if "notes" in fields:
-                if payload.notes is None:
-                    it["notes"] = None
-                else:
-                    stripped = payload.notes.strip()
-                    it["notes"] = stripped or None
-            if "schedule" in fields:
-                it["schedule"] = payload.schedule.model_dump() if payload.schedule else None
-                # When the user resizes (or schedules with a new duration),
-                # remember it as the task's preferred duration so the next
-                # auto-schedule uses the same slot length. Unscheduling
-                # (schedule -> None) leaves defaultDurationMin alone.
-                if payload.schedule is not None:
-                    it["defaultDurationMin"] = payload.schedule.durationMin
-            if "tags" in fields:
-                it["tags"] = list(payload.tags or [])
-            if "defaultDurationMin" in fields:
-                it["defaultDurationMin"] = int(payload.defaultDurationMin)
-            if "dueDate" in fields:
-                it["dueDate"] = payload.dueDate
-            if "recurring" in fields:
-                it["recurring"] = bool(payload.recurring)
-            if "snoozedUntil" in fields:
-                it["snoozedUntil"] = (
-                    None if payload.snoozedUntil is None else float(payload.snoozedUntil)
-                )
-            if "recurSchedule" in fields:
-                it["recurSchedule"] = (
-                    payload.recurSchedule.model_dump()
-                    if payload.recurSchedule
-                    else None
-                )
-            if "recurExceptions" in fields:
-                # Replace-all semantics, mirroring tags. Explicit null clears.
-                it["recurExceptions"] = list(payload.recurExceptions or [])
-            now = time.time()
-            if "done" in fields:
-                new_done = bool(payload.done)
-                prev_done = bool(it.get("done", False))
-                is_recurring = bool(it.get("recurring", False))
-                it["done"] = new_done
-                # For non-recurring tasks completedAt only moves on a state
-                # transition. For recurring tasks each PATCH done:true
-                # refreshes the timestamp so the wins counter picks up the
-                # new day's completion (the prior cycle's completedAt is
-                # lost — defer history tracking to the stats modal).
-                if new_done and (not prev_done or is_recurring):
-                    it["completedAt"] = now
-                elif prev_done and not new_done:
-                    it["completedAt"] = None
-            it["updatedAt"] = now
-            save_versioned(TASKS_FILE, data)
-            return TaskRecord(**it)
+    with _WRITE_LOCK:
+        data = load_versioned(TASKS_FILE)
+        fields = payload.model_fields_set
+        for it in data.setdefault("items", []):
+            if it["id"] == task_id and _is_live(it):
+                _normalize_task(it)
+                if "title" in fields:
+                    t = (payload.title or "").strip()
+                    if not t:
+                        raise HTTPException(status_code=400, detail="empty title")
+                    it["title"] = t
+                if "priority" in fields:
+                    validate_priority(payload.priority)
+                    it["priority"] = payload.priority
+                if "notes" in fields:
+                    if payload.notes is None:
+                        it["notes"] = None
+                    else:
+                        stripped = payload.notes.strip()
+                        it["notes"] = stripped or None
+                if "schedule" in fields:
+                    it["schedule"] = payload.schedule.model_dump() if payload.schedule else None
+                    # When the user resizes (or schedules with a new duration),
+                    # remember it as the task's preferred duration so the next
+                    # auto-schedule uses the same slot length. Unscheduling
+                    # (schedule -> None) leaves defaultDurationMin alone.
+                    if payload.schedule is not None:
+                        it["defaultDurationMin"] = payload.schedule.durationMin
+                if "tags" in fields:
+                    it["tags"] = list(payload.tags or [])
+                if "defaultDurationMin" in fields:
+                    it["defaultDurationMin"] = int(payload.defaultDurationMin)
+                if "dueDate" in fields:
+                    it["dueDate"] = payload.dueDate
+                if "recurring" in fields:
+                    it["recurring"] = bool(payload.recurring)
+                if "snoozedUntil" in fields:
+                    it["snoozedUntil"] = (
+                        None if payload.snoozedUntil is None else float(payload.snoozedUntil)
+                    )
+                if "recurSchedule" in fields:
+                    it["recurSchedule"] = (
+                        payload.recurSchedule.model_dump()
+                        if payload.recurSchedule
+                        else None
+                    )
+                if "recurExceptions" in fields:
+                    # Replace-all semantics, mirroring tags. Explicit null clears.
+                    it["recurExceptions"] = list(payload.recurExceptions or [])
+                now = time.time()
+                if "done" in fields:
+                    new_done = bool(payload.done)
+                    prev_done = bool(it.get("done", False))
+                    is_recurring = bool(it.get("recurring", False))
+                    it["done"] = new_done
+                    # For non-recurring tasks completedAt only moves on a state
+                    # transition. For recurring tasks each PATCH done:true
+                    # refreshes the timestamp so the wins counter picks up the
+                    # new day's completion (the prior cycle's completedAt is
+                    # lost — defer history tracking to the stats modal).
+                    if new_done and (not prev_done or is_recurring):
+                        it["completedAt"] = now
+                    elif prev_done and not new_done:
+                        it["completedAt"] = None
+                it["updatedAt"] = now
+                save_versioned(TASKS_FILE, data)
+                return TaskRecord(**it)
     raise HTTPException(status_code=404, detail="task not found")
 
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task_record(task_id: str) -> dict:
-    data = load_versioned(TASKS_FILE)
-    for it in data.setdefault("items", []):
-        if it["id"] == task_id and _is_live(it):
-            it["deletedAt"] = time.time()
-            save_versioned(TASKS_FILE, data)
-            return {"ok": True}
+    with _WRITE_LOCK:
+        data = load_versioned(TASKS_FILE)
+        for it in data.setdefault("items", []):
+            if it["id"] == task_id and _is_live(it):
+                it["deletedAt"] = time.time()
+                save_versioned(TASKS_FILE, data)
+                return {"ok": True}
     raise HTTPException(status_code=404, detail="task not found")
 
 
 @app.post("/api/tasks/{task_id}/restore", response_model=TaskRecord)
 def restore_task_record(task_id: str) -> TaskRecord:
-    data = load_versioned(TASKS_FILE)
-    for it in data.setdefault("items", []):
-        if it["id"] == task_id:
-            _normalize_task(it)
-            it["deletedAt"] = None
-            save_versioned(TASKS_FILE, data)
-            return TaskRecord(**it)
+    with _WRITE_LOCK:
+        data = load_versioned(TASKS_FILE)
+        for it in data.setdefault("items", []):
+            if it["id"] == task_id:
+                _normalize_task(it)
+                it["deletedAt"] = None
+                save_versioned(TASKS_FILE, data)
+                return TaskRecord(**it)
     raise HTTPException(status_code=404, detail="task not found")
 
 

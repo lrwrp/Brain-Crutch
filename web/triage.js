@@ -202,14 +202,20 @@ export function effectiveDuration(task) {
 
 // How far a scheduled block may grow before it would overlap the next block on
 // its day (or run off the canvas). Shrinking is always safe, so this only
-// bounds growth.
+// bounds growth. Sticky projections count as blocks too — mouse-resize checks
+// them (overlaps() over dayTasks), so the M key must respect the same
+// neighbors or growing via keyboard would silently swallow a projected block.
 function maxDurationForScheduled(task) {
   const s = task.schedule;
   let maxEnd = TIMELINE_END_MIN;
   for (const t of tasks) {
-    if (t.id === task.id || !t.schedule || t.schedule.date !== s.date) continue;
-    if (t.schedule.startMin > s.startMin && t.schedule.startMin < maxEnd) {
-      maxEnd = t.schedule.startMin;
+    if (t.id === task.id) continue;
+    let other = null;
+    if (t.schedule && t.schedule.date === s.date) other = t.schedule;
+    else other = projectedScheduleFor(t, s.date);
+    if (!other || other.startMin == null) continue;
+    if (other.startMin > s.startMin && other.startMin < maxEnd) {
+      maxEnd = other.startMin;
     }
   }
   return maxEnd - s.startMin;

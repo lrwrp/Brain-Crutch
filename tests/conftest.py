@@ -52,7 +52,10 @@ def client(tmp_data_dir):
     """
     import server
 
-    with TestClient(server.app) as c:
+    # base_url matters: TestClient's default host is "testserver", which the
+    # TrustedHost middleware (DNS-rebinding guard) rejects. Present as
+    # localhost, the same way a real browser does.
+    with TestClient(server.app, base_url="http://localhost") as c:
         yield c
 
 
